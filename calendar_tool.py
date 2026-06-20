@@ -59,6 +59,12 @@ def create_event(title, start_iso, duration_minutes=60, location=None, notes=Non
     return f"📅 Calendar event created: '{title}' at {start_iso} -> {event.get('htmlLink')}"
 
 
+def delete_event(event_id: str) -> str:
+    service = build("calendar", "v3", credentials=_credentials())
+    service.events().delete(calendarId="primary", eventId=event_id).execute()
+    return f"🗑️  Calendar event deleted (id {event_id})"
+
+
 def create_task(title, due_iso=None) -> str:
     service = build("tasks", "v1", credentials=_credentials())
     body = {"title": title}
