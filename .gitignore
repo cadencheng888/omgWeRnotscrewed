@@ -1,0 +1,11 @@
+# Secrets / config
+.env
+
+# Google OAuth
+credentials.json
+token.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc

@@ -1,0 +1,14 @@
+# Audio capture + Deepgram streaming
+sounddevice>=0.4.7
+websockets>=13.0
+
+# Claude (intent extraction + tool use)
+anthropic>=0.40.0
+
+# Google Calendar / Tasks
+google-api-python-client>=2.130.0
+google-auth-oauthlib>=1.2.0
+google-auth-httplib2>=0.2.0
+
+# Config
+python-dotenv>=1.0.0
