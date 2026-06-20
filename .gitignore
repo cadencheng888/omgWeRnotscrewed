@@ -1,9 +1,18 @@
+# Secrets / config
 .env
+
+# Google OAuth
+credentials.json
+token.json
+
+# Python
 .venv/
 __pycache__/
 *.pyc
 *.pyo
+
+# macOS
 .DS_Store
-credentials.json
-token.json
+
+# Output
 deals_results.json
