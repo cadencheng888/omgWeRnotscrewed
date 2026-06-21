@@ -18,6 +18,10 @@ final class RayBanCaptureManager: NSObject, ObservableObject {
 
     private var webSocket: URLSessionWebSocketTask?
 
+    // Mark's voice — speaks server "say" messages aloud (routes to the glasses
+    // when they're the active Bluetooth output, otherwise the phone speaker).
+    private let speechSynth = AVSpeechSynthesizer()
+
     // Meta Ray-Ban / MWDAT
     private let wearables: WearablesInterface = Wearables.shared
     private var deviceSession: DeviceSession?
@@ -70,7 +74,8 @@ final class RayBanCaptureManager: NSObject, ObservableObject {
         webSocket?.receive { [weak self] result in
             Task { @MainActor in
                 switch result {
-                case .success:
+                case .success(let message):
+                    self?.handleIncoming(message)
                     self?.receiveLoop()
 
                 case .failure(let error):
@@ -80,6 +85,27 @@ final class RayBanCaptureManager: NSObject, ObservableObject {
                 }
             }
         }
+    }
+
+    private func handleIncoming(_ message: URLSessionWebSocketTask.Message) {
+        guard case .string(let text) = message,
+              let data = text.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = obj["type"] as? String else { return }
+        if type == "say", let spoken = (obj["text"] as? String), !spoken.isEmpty {
+            DispatchQueue.main.async { [weak self] in self?.speak(spoken) }
+        }
+    }
+
+    private func speak(_ text: String) {
+        latestTranscript = "Mark: \(text)"
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        if speechSynth.isSpeaking {
+            speechSynth.stopSpeaking(at: .immediate)
+        }
+        speechSynth.speak(utterance)
     }
 
     func stop() {
@@ -351,16 +377,22 @@ final class RayBanCaptureManager: NSObject, ObservableObject {
     private func beginRawAudioCapture(useBluetooth: Bool = false) {
         let audioSession = AVAudioSession.sharedInstance()
         do {
-            // Use Bluetooth (Ray-Ban HFP mic) only when explicitly requested;
-            // otherwise route to the iPhone's built-in microphone.
-            var options: AVAudioSession.CategoryOptions = [.defaultToSpeaker]
-            if useBluetooth { options.insert(.allowBluetooth) }
+            // INPUT  = iPhone built-in mic (forced below).
+            // OUTPUT = Ray-Ban glasses speakers via Bluetooth A2DP when connected.
+            // .allowBluetoothA2DP routes playback (Mark's voice) to the glasses;
+            // we deliberately do NOT use .allowBluetooth (HFP) — that would steal
+            // the input to the glasses mic — nor .defaultToSpeaker, which would
+            // force output back to the phone. mode .default keeps A2DP routable.
             try audioSession.setCategory(
                 .playAndRecord,
-                mode: .measurement,
-                options: options
+                mode: .default,
+                options: [.allowBluetoothA2DP]
             )
             try audioSession.setActive(true)
+            // Force the phone's built-in mic as the capture input.
+            if let builtIn = audioSession.availableInputs?.first(where: { $0.portType == .builtInMic }) {
+                try? audioSession.setPreferredInput(builtIn)
+            }
         } catch {
             sendStatus("Audio session error: \(error.localizedDescription)")
             return

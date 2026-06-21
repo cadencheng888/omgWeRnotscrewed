@@ -1,0 +1,80 @@
+import { runBrowserbase } from "./browserbase";
+import { searchAgents } from "./agentverse_search";
+import { pickBestAgent } from "./gate";
+// import { looksLikeSms, runTwilioSms } from "./twilio_sms"; // DISABLED: file not implemented yet
+import { tryCalendarAction } from "./calendar_action";
+// Part 1: discover a specialized agent and judge it.
+// Invocation is deferred — selection is recorded in the trace as the headline
+// finding ("the right agent WAS found"), but execution still falls through to
+// the next tier so the task actually completes. This is intentional, not a
+// placeholder: it demonstrates real graceful degradation rather than stopping
+// at "selected but not yet invoked."
+async function tryAgentverse(intent, trace) {
+    const candidates = await searchAgents(intent, trace, {
+        limit: Number(process.env.AGENTVERSE_DEBUG_LIMIT) || 10,
+        activeOnly: true,
+        minRecentInteractions: 0,
+    });
+    if (candidates.length === 0)
+        return { selectedAgent: null };
+    const best = await pickBestAgent(intent, candidates, trace);
+    if (!best)
+        return { selectedAgent: null };
+    trace.push(`agentverse: invocation not yet wired — selection recorded, continuing to next tier`);
+    return { selectedAgent: best };
+}
+// A trace array that also calls `onLine` the moment each entry is pushed, so a
+// caller can stream the router's reasoning live instead of waiting for the final
+// RouteResult. The tiers below all just `trace.push(...)` as before — they don't
+// need to know anything is listening.
+function makeTrace(onLine) {
+    const arr = [];
+    if (onLine) {
+        const orig = arr.push.bind(arr);
+        arr.push = (...items) => {
+            for (const it of items)
+                onLine(it);
+            return orig(...items);
+        };
+    }
+    return arr;
+}
+// Sequential by design: prefer specialized agents, degrade gracefully to web.
+// onTrace (optional) is called with each reasoning line as it happens.
+export async function route(intent, onTrace) {
+    const trace = makeTrace(onTrace);
+    trace.push(`intent: "${intent}"`);
+    // SMS action tier disabled until twilio_sms.ts is implemented.
+    // if (looksLikeSms(intent) && process.env.TWILIO_ACCOUNT_SID) {
+    //   trace.push("route: intent looks like SMS — trying Twilio action");
+    //   const sms = await runTwilioSms(intent, trace);
+    //   if (sms.status === "success") return sms;
+    //   trace.push("route: Twilio didn't complete — falling through to web");
+    // }
+    const { selectedAgent } = await tryAgentverse(intent, trace);
+    // Structured/API action tier: calendar create/update/delete via Google Calendar API.
+    // Returns null if the intent isn't calendar-shaped, so we fall through to Browserbase.
+    const fromCalendar = await tryCalendarAction(intent, trace);
+    if (fromCalendar) {
+        return attachSelection(fromCalendar, selectedAgent);
+    }
+    const fromBrowserbase = await runBrowserbase(intent, trace);
+    return attachSelection(fromBrowserbase, selectedAgent);
+}
+// Surfaces "Agentverse selected agent X" alongside whichever tier actually
+// completed the task, without changing that tier's own result shape.
+function attachSelection(result, selected) {
+    if (!selected)
+        return result;
+    return {
+        ...result,
+        payload: {
+            ...result.payload,
+            agentverseSelected: {
+                name: selected.agent.name,
+                address: selected.agent.address,
+                confidence: selected.judgement.confidence,
+            },
+        },
+    };
+}

@@ -10,6 +10,7 @@ definition here + a handler in `execute_tool`. Claude figures out when to use it
 """
 
 import datetime
+import json
 import os
 import re
 import time
@@ -88,6 +89,78 @@ def synthesize_command(notes: list[str]) -> str:
         messages=[{"role": "user", "content": bullet_notes}],
     )
     return resp.content[0].text.strip()
+
+
+def spoken_confirmation(results: list[str]) -> str | None:
+    """Turn the action result card(s) into one short, warm spoken confirmation.
+
+    Returns None when there's nothing worth speaking (chit-chat, errors, or a
+    pending clarification)."""
+    actions = [
+        r for r in results
+        if r and not r.startswith(("💬", "⚠️", "❓CLARIFY"))
+    ]
+    if not actions:
+        return None
+    resp = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=60,
+        system=(
+            "You are Mark, the wearer's friendly assistant living in their glasses. "
+            "They just asked you to do something and it is now DONE. In ONE short, "
+            "warm sentence (max 14 words), confirm it out loud like a helpful friend. "
+            "Speak naturally — no emojis, no markup, no lists, no quotes. "
+            "Examples: 'Done — dinner with Alex is on your calendar for Saturday at 7.' "
+            "'Got it, I added oat milk to your Amazon cart.' "
+            "'All set, I texted Mom you're running late.'"
+        ),
+        messages=[{"role": "user", "content": "\n".join(actions)}],
+    )
+    return resp.content[0].text.strip()
+
+
+def converse(user_text: str, history: list[dict]) -> dict:
+    """One conversational turn as Mark. Returns {reply, end, task}.
+
+    - reply: short spoken response (read aloud through the glasses)
+    - end:   True when the wearer is wrapping up the conversation
+    - task:  a clean imperative command to actually execute, or None
+    """
+    sys = (
+        "You are Mark, the wearer's witty, warm AI companion living in their Meta "
+        f"glasses. Current time: {_now_context()} (timezone {TZ_NAME}).{_location_context()}\n"
+        "You're having a quick spoken back-and-forth — like a friend on call. Keep "
+        "replies SHORT (1-2 sentences), natural and personable. No emojis, no markup, "
+        "no lists; everything you say is read aloud.\n"
+        "If the wearer signals they're done — 'that's all', 'thanks, that's it', "
+        "'never mind', 'I'm good', 'bye', 'that's everything', or any clear wrap-up — "
+        "set end=true and give a brief friendly sign-off.\n"
+        "If the wearer asks you to actually DO something (schedule an event, add to "
+        "cart, text someone, set a reminder, play music, get directions, search, "
+        "order food, etc.), put a clean imperative version in 'task' (e.g. 'schedule "
+        "dinner with Alex tomorrow at 7pm'); otherwise task is null. Still give a warm "
+        "reply that acknowledges it naturally.\n"
+        'Respond with ONLY JSON, nothing else: '
+        '{"reply": "...", "end": false, "task": null}'
+    )
+    msgs = [{"role": h["role"], "content": h["content"]} for h in history[-6:]]
+    msgs.append({"role": "user", "content": user_text})
+    resp = client.messages.create(
+        model="claude-haiku-4-5", max_tokens=200, system=sys, messages=msgs,
+    )
+    raw = resp.content[0].text.strip()
+    try:
+        m = re.search(r"\{.*\}", raw, re.S)
+        data = json.loads(m.group(0)) if m else {}
+    except Exception:
+        data = {}
+    reply = (data.get("reply") or raw).strip()
+    task = data.get("task")
+    if isinstance(task, str):
+        task = task.strip() or None
+    else:
+        task = None
+    return {"reply": reply, "end": bool(data.get("end")), "task": task}
 
 
 # Titles that are too generic unless the transcript/tool input really supports them.

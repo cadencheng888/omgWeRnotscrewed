@@ -142,8 +142,20 @@ function ActionCard({ c }) {
 
 export default function App() {
   const { state, send } = useAgentSocket()
-  const { status, calMode, capMode, face, rayban, finals, interim, level, entities, cards, thinking, clarify, ttl, location, recordNotes } = state
+  const { status, calMode, capMode, face, rayban, finals, interim, level, entities, cards, thinking, clarify, ttl, location, recordNotes, lastSpoken } = state
   const [camOpen, setCamOpen] = useState(false)
+
+  // Speak Mark's replies aloud (browser fallback; the iPhone speaks through the
+  // glasses). Triggered whenever a new `say` message arrives.
+  useEffect(() => {
+    if (!lastSpoken || typeof window === 'undefined' || !window.speechSynthesis) return
+    try {
+      const u = new SpeechSynthesisUtterance(lastSpoken.text)
+      u.rate = 1.02
+      window.speechSynthesis.cancel()
+      window.speechSynthesis.speak(u)
+    } catch { /* no-op */ }
+  }, [lastSpoken])
 
   const st = STATUS[status] || STATUS.idle
   const faceMap = {
@@ -285,6 +297,17 @@ export default function App() {
           </div>
         </section>
       </main>
+
+      {/* MARK SPEAKS — what the assistant just said aloud through the glasses */}
+      {lastSpoken && (
+        <div className="px-6 pb-1 relative z-10" key={lastSpoken.id}>
+          <div className="mx-auto max-w-2xl flex items-center gap-2.5 rounded-full border border-violet-400/25 bg-violet-500/[0.07] px-4 py-2" style={{ animation: 'popIn .3s ease both' }}>
+            <span className="text-[14px]">🗣️</span>
+            <span className="mono text-[10px] tracking-wide text-violet-300/80 shrink-0">MARK</span>
+            <span className="text-[13px] text-zinc-200 truncate">{lastSpoken.text}</span>
+          </div>
+        </div>
+      )}
 
       {/* FOOTER */}
       <footer className="flex items-center justify-between px-6 py-3.5 relative z-10">

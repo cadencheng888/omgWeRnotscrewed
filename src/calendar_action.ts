@@ -140,7 +140,16 @@ export async function tryCalendarAction(
 
     return null;
   } catch (e) {
-    trace.push(`calendar: action failed (${(e as Error).message})`);
+    const msg = (e as Error).message || String(e);
+    // If the calendar microservice isn't running (connection refused / DNS /
+    // network), treat the tier as absent and fall through to the next tier
+    // instead of reporting a hard failure. The in-process Python calendar owns
+    // real Google Calendar writes; this TS tier is optional.
+    if (/fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|network|Failed to fetch|socket hang up/i.test(msg)) {
+      trace.push("calendar: service unreachable — falling through to next tier");
+      return null;
+    }
+    trace.push(`calendar: action failed (${msg})`);
     return { source: "calendar", status: "failed", payload: null, trace };
   }
 }

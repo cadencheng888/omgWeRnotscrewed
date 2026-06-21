@@ -13,6 +13,7 @@ const initial = {
   face: null,               // present | absent | off | null
   rayban: false,            // true while /ws/audio-in is connected
   recordNotes: [],          // record mode: compressed per-chunk summaries
+  lastSpoken: null,         // {id, text} — what Mark just said back (spoken aloud)
   finals: [],               // [{id, text}]
   interim: '',
   level: 0,
@@ -73,6 +74,7 @@ function reducer(s, a) {
     }
     case 'recordNote': return { ...s, recordNotes: [...s.recordNotes, a.text] }
     case 'recordClear': return { ...s, recordNotes: [] }
+    case 'say': return { ...s, lastSpoken: { id: ++cid, text: a.text } }
     case 'forget': return { ...s, finals: [], interim: '', entities: [], cards: [], thinking: [], clarify: null, ttl: 0 }
     case 'reset': return { ...initial, connected: s.connected, status: 'idle', calMode: s.calMode, capMode: s.capMode }
     default: return s
@@ -129,6 +131,7 @@ export function useAgentSocket() {
           case 'rayban': dispatch({ t: 'rayban', on: m.connected }); break
           case 'record_note': dispatch({ t: 'recordNote', text: m.text }); break
           case 'record_cleared': dispatch({ t: 'recordClear' }); break
+          case 'say': dispatch({ t: 'say', text: m.text }); break
           default: break
         }
       }

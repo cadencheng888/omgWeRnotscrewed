@@ -14,6 +14,7 @@ Calendar mode is auto-detected:
 
 import asyncio
 import os
+import re
 import time
 
 import uvicorn
@@ -97,13 +98,50 @@ _mic_task: asyncio.Task | None = None
 _ray_ban_audio_active = False   # True while /ws/audio-in is connected; bypasses face gate
 _record_buffer: list[str] = []  # record mode: compressed note per speech chunk
 
+# Talk-back: iPhone sockets we can push spoken replies to, plus the live
+# conversation state for the "mark" chat trigger.
+iphone_clients: set[WebSocket] = set()
+_chat_active = False              # True while the wearer is mid-conversation with Mark
+_chat_history: list[dict] = []    # rolling [{role, content}] for the chat responder
+# While Mark is speaking, his voice bleeds back through the open mic. Ignore any
+# transcript that lands before this monotonic deadline so he doesn't hear himself.
+_suppress_capture_until = 0.0
+
+
+def _speak_seconds(text: str) -> float:
+    """Rough spoken duration estimate (~150 wpm) used to mute self-capture."""
+    return len(text.split()) / 2.5 + 1.0
+
+
+_GREETINGS = {"hey", "yo", "ok", "okay", "hi", "hello", "um", "uh", "so"}
+
+
+def _is_chat_trigger(text: str) -> bool:
+    """True when the wearer calls 'Mark' (to chat) rather than 'mark this' (command).
+
+    Fires when 'mark' is the first or last spoken word, or follows a greeting —
+    a name-call — but not when it's buried mid-sentence or part of 'mark this'."""
+    low = text.lower()
+    if WAKE_PHRASE in low:  # "mark this" → that's the command trigger, not chat
+        return False
+    toks = re.findall(r"[a-z']+", low)
+    if "mark" not in toks:
+        return False
+    if toks[0] == "mark" or toks[-1] == "mark":
+        return True
+    if len(toks) >= 2 and toks[0] in _GREETINGS and toks[1] == "mark":
+        return True
+    return False
+
 
 async def _stop_listening():
     """Cancel the mic task and return the UI to idle."""
-    global _mic_task, _transcript, _dirty
+    global _mic_task, _transcript, _dirty, _chat_active
     _transcript.clear()
     _dirty = False
     _record_buffer.clear()
+    _chat_active = False
+    _chat_history.clear()
     face_gate.stop()
     await broadcast({"type": "forgotten"})
     await broadcast({"type": "record_cleared"})
@@ -133,6 +171,28 @@ async def broadcast(msg: dict):
             await ws.send_json(msg)
         except Exception:
             clients.discard(ws)
+
+
+async def say(text: str):
+    """Speak back to the wearer: shown as Mark's bubble on the HUD and read aloud
+    on the iPhone (AVSpeechSynthesizer → glasses). Also opens a self-capture mute
+    window so Mark's own voice doesn't loop back through the mic."""
+    global _suppress_capture_until
+    text = (text or "").strip()
+    if not text:
+        return
+    _suppress_capture_until = time.monotonic() + _speak_seconds(text)
+    msg = {"type": "say", "text": text}
+    for ws in list(clients):
+        try:
+            await ws.send_json(msg)
+        except Exception:
+            clients.discard(ws)
+    for ws in list(iphone_clients):
+        try:
+            await ws.send_json(msg)
+        except Exception:
+            iphone_clients.discard(ws)
 
 
 def _emit_router_event(ev: dict):
@@ -174,6 +234,8 @@ def on_final(text: str):
     if STOP_KEYWORD and STOP_KEYWORD.lower() in text.lower():
         asyncio.create_task(_stop_listening())
         return
+    if time.monotonic() < _suppress_capture_until:
+        return  # Mark is talking — this is his own voice bleeding into the mic
     if CAPTURE_MODE == "conversation" and not _ray_ban_audio_active and not face_gate.is_present():
         return  # no face in view — not capturing
     now = time.monotonic()
@@ -200,7 +262,7 @@ def on_entities(entities):
         asyncio.create_task(broadcast({"type": "entities", "values": vals}))
 
 
-async def _process_and_broadcast(conversation: str) -> bool:
+async def _process_and_broadcast(conversation: str, speak_result: bool = True) -> bool:
     print(f"→ sending to Claude: {conversation!r}")
     await broadcast({"type": "status", "text": "thinking"})
     acted = False
@@ -217,6 +279,11 @@ async def _process_and_broadcast(conversation: str) -> bool:
                 else:
                     acted = True
                     await broadcast({"type": "action", "text": line})
+            # Speak a short, warm confirmation once the task is done.
+            if acted and speak_result:
+                spoken = await asyncio.to_thread(agent.spoken_confirmation, results)
+                if spoken:
+                    await say(spoken)
         else:
             await broadcast({"type": "action", "text": "💬 (no action — chit-chat)", "muted": True})
     except Exception as e:
@@ -227,7 +294,7 @@ async def _process_and_broadcast(conversation: str) -> bool:
 
 
 async def flusher():
-    global _dirty, _transcript
+    global _dirty, _transcript, _chat_active
     while True:
         await asyncio.sleep(0.25)
         now = time.monotonic()
@@ -284,7 +351,43 @@ async def flusher():
             _transcript = _transcript[-10:]
 
         if CAPTURE_MODE == "solo":
-            # Require the wake phrase — only act when "mark this" is detected.
+            # (1) Mid-conversation with Mark — every utterance is a chat turn.
+            if _chat_active:
+                text = conversation.strip()
+                _transcript = []
+                if not text:
+                    continue
+                await broadcast({"type": "status", "text": "thinking"})
+                turn = await asyncio.to_thread(agent.converse, text, _chat_history)
+                _chat_history.append({"role": "user", "content": text})
+                _chat_history.append({"role": "assistant", "content": turn["reply"]})
+                await say(turn["reply"])
+                if turn.get("task"):
+                    # The wearer asked for something concrete mid-chat — do it.
+                    # The spoken reply already acknowledged it, so don't double-speak.
+                    _write_intention(turn["task"])
+                    await _process_and_broadcast(
+                        "Direct command from the wearer — perform it now, inferring "
+                        "the action verb and app if implied: " + turn["task"],
+                        speak_result=False,
+                    )
+                if turn["end"]:
+                    _chat_active = False
+                    _chat_history.clear()
+                await broadcast({"type": "status", "text": "listening"})
+                continue
+
+            # (2) Bare "mark" (a name-call) opens a back-and-forth conversation.
+            if _is_chat_trigger(conversation):
+                _chat_active = True
+                _chat_history.clear()
+                _transcript = []
+                greeting = "Hey, I'm here — what's up?"
+                _chat_history.append({"role": "assistant", "content": greeting})
+                await say(greeting)
+                continue
+
+            # (3) "mark this <command>" — one-shot command.
             i = conversation.lower().rfind(WAKE_PHRASE)
             if i == -1:
                 continue  # no wake phrase — not a command, keep waiting
@@ -507,6 +610,7 @@ async def iphone_endpoint(ws: WebSocket):
     global _ray_ban_audio_active
     await ws.accept()
     _ray_ban_audio_active = True
+    iphone_clients.add(ws)  # so Mark can speak back to the glasses
     print("iPhone connected on /ws/iphone")
     await broadcast({"type": "status", "text": "listening"})
     await broadcast({"type": "rayban", "connected": True})
@@ -554,6 +658,7 @@ async def iphone_endpoint(ws: WebSocket):
         pass
     finally:
         _ray_ban_audio_active = False
+        iphone_clients.discard(ws)
         await audio_queue.put(None)
         if stream_task:
             stream_task.cancel()
