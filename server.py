@@ -139,7 +139,12 @@ def _emit_router_event(ev: dict):
         return
     kind = ev.get("kind")
     if kind == "thinking":
-        msg = {"type": "thinking", "text": ev.get("text", "")}
+        text = ev.get("text", "")
+        # router always emits `intent: "..."` as its first trace line — use it
+        # to trigger the listener terminal for any intent, not just "mark this"
+        if text.startswith('intent:'):
+            _write_intention(text[len('intent:'):].strip().strip('"'))
+        msg = {"type": "thinking", "text": text}
     elif kind == "result":
         msg = {"type": "action", "text": ev.get("text", "")}
     else:
@@ -218,7 +223,8 @@ async def _process_and_broadcast(conversation: str) -> bool:
     except Exception as e:
         print(f"✗ error: {e!r}")
         await broadcast({"type": "action", "text": f"⚠️ {e}", "muted": True})
-    await broadcast({"type": "status", "text": "listening"})
+    is_active = _ray_ban_audio_active or (_mic_task is not None and not _mic_task.done())
+    await broadcast({"type": "status", "text": "listening" if is_active else "idle"})
     return acted
 
 
@@ -280,11 +286,9 @@ async def flusher():
                 "Direct command from the wearer — perform it now, inferring the "
                 "action verb and app if implied: " + command
             )
-            _write_intention(command)
             await _process_and_broadcast(directive)
             continue
 
-        _write_intention(conversation)
         await _process_and_broadcast(conversation)
         # NOT cleared instantly on action — the buffer lingers ~20s (see
         # IDLE_CLEAR_SECONDS / MAX_AGE_SECONDS) so quick follow-ups like
@@ -358,8 +362,11 @@ async def ws_endpoint(ws: WebSocket):
     global _mic_task, _dirty, CAPTURE_MODE
     await ws.accept()
     clients.add(ws)
-    await ws.send_json({"type": "status", "text": "idle", "mode": MODE})
+    cur = "listening" if (_ray_ban_audio_active or (_mic_task and not _mic_task.done())) else "idle"
+    await ws.send_json({"type": "status", "text": cur, "mode": MODE})
     await ws.send_json({"type": "capturemode", "mode": CAPTURE_MODE})
+    if _ray_ban_audio_active:
+        await ws.send_json({"type": "rayban", "connected": True})
     try:
         while True:
             data = await ws.receive_json()
@@ -417,9 +424,10 @@ async def audio_in_endpoint(ws: WebSocket):
 
     audio_queue: asyncio.Queue = asyncio.Queue()
     stream_task: asyncio.Task | None = None
+    _my_flusher: asyncio.Task | None = None
 
     async def _start_stream(sample_rate: int):
-        nonlocal stream_task, audio_queue
+        nonlocal stream_task, audio_queue, _my_flusher
         if stream_task and not stream_task.done():
             await audio_queue.put(None)
             stream_task.cancel()
@@ -433,10 +441,10 @@ async def audio_in_endpoint(ws: WebSocket):
                 on_entities=on_entities,
             )
         )
-        # Start the flusher if the Mic button was never pressed
         global _mic_task
         if _mic_task is None or _mic_task.done():
             _mic_task = asyncio.create_task(flusher())
+            _my_flusher = _mic_task
 
     try:
         while True:
@@ -459,6 +467,8 @@ async def audio_in_endpoint(ws: WebSocket):
         await audio_queue.put(None)
         if stream_task:
             stream_task.cancel()
+        if _my_flusher and not _my_flusher.done():
+            _my_flusher.cancel()
         print("Ray-Ban audio relay disconnected")
         await broadcast({"type": "rayban", "connected": False})
         await broadcast({"type": "status", "text": "idle"})
@@ -483,9 +493,10 @@ async def iphone_endpoint(ws: WebSocket):
 
     audio_queue: asyncio.Queue = asyncio.Queue()
     stream_task: asyncio.Task | None = None
+    _my_flusher: asyncio.Task | None = None  # flusher started by this connection
 
     async def _start_stream(sample_rate: int):
-        nonlocal stream_task, audio_queue
+        nonlocal stream_task, audio_queue, _my_flusher
         if stream_task and not stream_task.done():
             await audio_queue.put(None)
             stream_task.cancel()
@@ -502,6 +513,7 @@ async def iphone_endpoint(ws: WebSocket):
         global _mic_task
         if _mic_task is None or _mic_task.done():
             _mic_task = asyncio.create_task(flusher())
+            _my_flusher = _mic_task
 
     try:
         while True:
@@ -527,6 +539,8 @@ async def iphone_endpoint(ws: WebSocket):
         await audio_queue.put(None)
         if stream_task:
             stream_task.cancel()
+        if _my_flusher and not _my_flusher.done():
+            _my_flusher.cancel()
         print("iPhone disconnected from /ws/iphone")
         await broadcast({"type": "rayban", "connected": False})
         await broadcast({"type": "status", "text": "idle"})
