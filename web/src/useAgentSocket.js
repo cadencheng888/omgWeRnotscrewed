@@ -9,9 +9,10 @@ const initial = {
   status: 'connecting',     // listening | demo running | thinking | idle | disconnected
   calMode: null,            // null (unknown yet) | mock | live (calendar badge)
   location: null,           // detected current location label
-  capMode: 'conversation',  // conversation | solo
+  capMode: 'conversation',  // conversation | solo | record
   face: null,               // present | absent | off | null
   rayban: false,            // true while /ws/audio-in is connected
+  recordNotes: [],          // record mode: compressed per-chunk summaries
   finals: [],               // [{id, text}]
   interim: '',
   level: 0,
@@ -52,7 +53,7 @@ function reducer(s, a) {
     case 'action': {
       const c = classifyAction(a.text)
       if (a.muted || c.muted) return s
-      // removal strikes the matching card already on the list
+      // cancellation / removal: strike the matching card
       if (c.cancelled && c.key) {
         const idx = s.cards.findIndex((x) => x.key === c.key && !x.cancelled)
         if (idx !== -1) {
@@ -61,8 +62,17 @@ function reducer(s, a) {
           return { ...s, cards, clarify: null }
         }
       }
+      // reschedule: strike the original card and show the updated one on top
+      if (c.tool === 'reschedule_event' && c.key) {
+        const cards = s.cards.slice()
+        const oldIdx = cards.findIndex((x) => x.key === c.key && !x.cancelled)
+        if (oldIdx !== -1) cards[oldIdx] = { ...cards[oldIdx], cancelled: true, accent: '#818cf8', source: 'rescheduled' }
+        return { ...s, clarify: null, cards: [{ id: ++cid, ...c }, ...cards].slice(0, 6) }
+      }
       return { ...s, clarify: null, cards: [{ id: ++cid, ...c }, ...s.cards].slice(0, 6) }
     }
+    case 'recordNote': return { ...s, recordNotes: [...s.recordNotes, a.text] }
+    case 'recordClear': return { ...s, recordNotes: [] }
     case 'forget': return { ...s, finals: [], interim: '', entities: [], cards: [], thinking: [], clarify: null, ttl: 0 }
     case 'reset': return { ...initial, connected: s.connected, status: 'idle', calMode: s.calMode, capMode: s.capMode }
     default: return s
@@ -117,6 +127,8 @@ export function useAgentSocket() {
           case 'reset': clearTTL(); dispatch({ t: 'reset' }); break
           case 'face': dispatch({ t: 'face', state: m.state }); break
           case 'rayban': dispatch({ t: 'rayban', on: m.connected }); break
+          case 'record_note': dispatch({ t: 'recordNote', text: m.text }); break
+          case 'record_cleared': dispatch({ t: 'recordClear' }); break
           default: break
         }
       }

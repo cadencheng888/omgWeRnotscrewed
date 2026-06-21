@@ -333,7 +333,7 @@ final class RayBanCaptureManager: NSObject, ObservableObject {
 
     // MARK: - Raw Audio Streaming to Deepgram (via server)
 
-    func startTranscription() {
+    func startTranscription(useBluetooth: Bool = false) {
         guard !isTranscribing else { return }
 
         AVAudioApplication.requestRecordPermission { [weak self] granted in
@@ -343,19 +343,22 @@ final class RayBanCaptureManager: NSObject, ObservableObject {
                     self.sendStatus("Microphone permission denied")
                     return
                 }
-                self.beginRawAudioCapture()
+                self.beginRawAudioCapture(useBluetooth: useBluetooth)
             }
         }
     }
 
-    private func beginRawAudioCapture() {
+    private func beginRawAudioCapture(useBluetooth: Bool = false) {
         let audioSession = AVAudioSession.sharedInstance()
         do {
-            // .allowBluetooth routes the Ray-Ban Bluetooth mic through HFP
+            // Use Bluetooth (Ray-Ban HFP mic) only when explicitly requested;
+            // otherwise route to the iPhone's built-in microphone.
+            var options: AVAudioSession.CategoryOptions = [.defaultToSpeaker]
+            if useBluetooth { options.insert(.allowBluetooth) }
             try audioSession.setCategory(
                 .playAndRecord,
                 mode: .measurement,
-                options: [.allowBluetooth, .defaultToSpeaker]
+                options: options
             )
             try audioSession.setActive(true)
         } catch {

@@ -52,6 +52,44 @@ _entity_cache: list[dict] = []  # each: {"value": str, "label": str, "ts": monot
 # re-confirmations AND to let later "cancel that" / "reschedule" target it.
 DEDUP_WINDOW_SECONDS = 3600  # 1 hour
 
+
+def compress_sentence(text: str) -> str:
+    """Compress one transcript sentence to ≤6 words of scheduling-relevant info."""
+    resp = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=30,
+        system=(
+            "Extract ONLY scheduling info (who, what activity, when, where) "
+            "as a phrase of 6 words or less. "
+            "Examples: 'dinner tomorrow 7pm', 'meeting Alex 3pm Tuesday', 'coffee Main St noon'. "
+            "If nothing scheduling-relevant, return 'none'."
+        ),
+        messages=[{"role": "user", "content": text}],
+    )
+    return resp.content[0].text.strip()
+
+
+def synthesize_command(notes: list[str]) -> str:
+    """Synthesize accumulated conversation notes into a single scheduling command."""
+    if not notes:
+        return "none"
+    bullet_notes = "\n".join(f"- {n}" for n in notes)
+    resp = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=80,
+        system=(
+            f"Current time: {_now_context()}.\n"
+            "Given these conversation notes, write ONE natural-language scheduling "
+            "command. Minimum required: a time or date — everything else is optional. "
+            "Example output: 'schedule dinner with Alex tomorrow at 7pm'. "
+            "If there is no clear time or date, return 'none'. "
+            "Return ONLY the command, nothing else."
+        ),
+        messages=[{"role": "user", "content": bullet_notes}],
+    )
+    return resp.content[0].text.strip()
+
+
 # Titles that are too generic unless the transcript/tool input really supports them.
 GENERIC_EVENT_TITLES = {"meeting", "event", "plan", "calendar event", "appointment"}
 
@@ -104,6 +142,17 @@ def _clean_event_type(event_type: str | None) -> str:
         "video_call": "call",
     }
     return aliases.get(normalized, normalized if normalized in EVENT_TITLE_MAP else "other")
+
+
+def _fmt_time(iso: str) -> str:
+    """ISO 8601 → 'Sat Jun 21 at 7:00 pm' (no leading zeros, portable)."""
+    try:
+        dt = datetime.datetime.fromisoformat(iso)
+        hour = dt.hour % 12 or 12
+        ampm = "am" if dt.hour < 12 else "pm"
+        return dt.strftime(f"%a %b {dt.day} at {hour}:{dt.minute:02d}{ampm}")
+    except Exception:
+        return iso
 
 
 def _specific_title_from_args(args: dict) -> str:
@@ -578,7 +627,16 @@ def _recent_events_context() -> str:
     _recent_events[:] = [e for e in _recent_events if now - e["created_at"] < DEDUP_WINDOW_SECONDS]
     if not _recent_events:
         return ""
-    lines = [f"- {e['title']} at {e['start_iso']}" for e in _recent_events]
+    lines = []
+    for e in _recent_events:
+        parts = [e["title"]]
+        if e.get("event_type") and e["event_type"] != "other":
+            parts.append(f"({e['event_type']})")
+        if e.get("participants"):
+            parts.append(f"with {', '.join(e['participants'])}")
+        parts.append("at")
+        parts.append(_fmt_time(e["start_iso"]))
+        lines.append("- " + " ".join(parts))
     return (
         "Events you already created this session (reschedule_event or "
         "cancel_event these instead of making duplicates):\n" + "\n".join(lines)
@@ -628,56 +686,63 @@ def _find_recent_event(hint: str | None = None) -> dict | None:
 
 def execute_tool(name: str, args: dict) -> str:
     if name == "create_calendar_event":
-        # Backend guard against Claude overusing generic titles such as "Meeting".
         title = _specific_title_from_args(args)
         args["title"] = title
 
-        key = _event_key(args["title"], args["start_iso"])
+        key = _event_key(title, args["start_iso"])
         now = time.monotonic()
-        # Purge stale entries first.
         _recent_events[:] = [e for e in _recent_events if now - e["created_at"] < DEDUP_WINDOW_SECONDS]
-        # Deduplicate: if we already created this event recently, skip it.
         for recent in _recent_events:
             if recent["key"] == key:
-                return None  # already scheduled this — no duplicate card
+                return None  # already scheduled — no duplicate card
 
-        # Preserve structured metadata in notes without requiring calendar_tool changes.
+        # Normalise participants once; used in both calendar notes and the card.
+        raw_p = args.get("participants") or []
+        if isinstance(raw_p, str):
+            raw_p = [raw_p]
+        participants = [p.strip() for p in raw_p if isinstance(p, str) and p.strip()]
+
+        event_type = _clean_event_type(args.get("event_type"))
+
         notes_parts = []
         if args.get("notes"):
             notes_parts.append(str(args["notes"]))
-        if args.get("event_type"):
-            notes_parts.append(f"Type: {_clean_event_type(args.get('event_type'))}")
-        if args.get("participants"):
-            participants = args["participants"]
-            if isinstance(participants, list):
-                participants_text = ", ".join(str(p) for p in participants if p)
-            else:
-                participants_text = str(participants)
-            if participants_text:
-                notes_parts.append(f"Participants: {participants_text}")
+        if event_type:
+            notes_parts.append(f"Type: {event_type}")
+        if participants:
+            notes_parts.append(f"Participants: {', '.join(participants)}")
         notes = "\n".join(notes_parts) if notes_parts else None
 
-        result = calendar_tool.create_event(
-            title=args["title"],
+        raw_result = calendar_tool.create_event(
+            title=title,
             start_iso=args["start_iso"],
             duration_minutes=args.get("duration_minutes", 60),
             location=args.get("location"),
             notes=notes,
         )
-        # Pull the real event id (appended by calendar_tool as [id:...]) so
-        # cancellation deletes the right event; keep it out of the printed line.
         event_id = None
-        if "[id:" in result:
-            event_id = result.split("[id:")[1].split("]")[0]
-            result = result.split(" [id:")[0]
+        if "[id:" in raw_result:
+            event_id = raw_result.split("[id:")[1].split("]")[0]
+
         _recent_events.append({
             "key": key,
-            "title": args["title"],
+            "title": title,
             "start_iso": args["start_iso"],
             "event_id": event_id,
+            "event_type": event_type,
+            "participants": participants,
             "created_at": now,
         })
-        return result + f" ⟦calendar:{args['title'].strip().lower()}⟧"
+
+        # Build a structured card: 'Title' — type · with Person · Sat Jun 21 at 7pm
+        detail_parts = []
+        if event_type and event_type != "other":
+            detail_parts.append(EVENT_TITLE_MAP.get(event_type, event_type.title()))
+        if participants and f"with {participants[0].lower()}" not in title.lower():
+            detail_parts.append(f"with {participants[0]}")
+        detail_parts.append(_fmt_time(args["start_iso"]))
+        card_key = f"calendar:{title.strip().lower()}"
+        return f"📅 '{title}' — {' · '.join(detail_parts)} ⟦{card_key}⟧"
 
     if name == "cancel_event":
         event = _find_recent_event(args.get("event_description"))
@@ -685,9 +750,10 @@ def execute_tool(name: str, args: dict) -> str:
             return "⚠️  No recent event to cancel"
         if not event.get("event_id"):
             return f"⚠️  Can't cancel '{event['title']}' — event ID not available"
+        calendar_tool.delete_event(event["event_id"])
         _recent_events.remove(event)
-        return (calendar_tool.delete_event(event["event_id"])
-                + f" ⟦calendar:{event['title'].strip().lower()}⟧")
+        card_key = f"calendar:{event['title'].strip().lower()}"
+        return f"🗑️ '{event['title']}' — cancelled ⟦{card_key}⟧"
 
     if name == "reschedule_event":
         new_start = args.get("new_start_iso")
@@ -698,15 +764,18 @@ def execute_tool(name: str, args: dict) -> str:
             return "⚠️  No recent event to reschedule"
         if not event.get("event_id"):
             return f"⚠️  Can't reschedule '{event['title']}' — event ID not available"
-        result = calendar_tool.update_event(
-            event["event_id"],
-            start_iso=new_start,
-            duration_minutes=args.get("new_duration_minutes"),
-        )
-        # Keep our tracking + dedup key in sync with the new time.
+        try:
+            calendar_tool.update_event(
+                event["event_id"],
+                start_iso=new_start,
+                duration_minutes=args.get("new_duration_minutes"),
+            )
+        except Exception as e:
+            return f"⚠️  Reschedule failed: {e}"
         event["start_iso"] = new_start
         event["key"] = _event_key(event["title"], new_start)
-        return result
+        card_key = f"calendar:{event['title'].strip().lower()}"
+        return f"🔁 '{event['title']}' — moved to {_fmt_time(new_start)} ⟦{card_key}⟧"
 
     if name == "perform_action":
         app = (args.get("app") or "app").strip()

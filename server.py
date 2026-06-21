@@ -85,6 +85,7 @@ _DANGLING_TAIL = {
 # --- pipeline buffer (ephemeral: held only until it acts or the moment passes) ---
 SILENCE_FLUSH_SECONDS = 1.5     # quiet gap before we send a flush to the agent
 IDLE_CLEAR_SECONDS = 20         # clear the buffer ~20s after the last speech
+RECORD_SILENCE_SECONDS = 8.0    # record mode: silence gap that signals end of conversation
 MAX_AGE_SECONDS = 20            # hard guarantee: nothing held older than ~20s
 # Short rolling window so recent clean speech dominates and old chatter doesn't
 # linger and poison new requests.
@@ -94,6 +95,7 @@ _last_speech = 0.0
 _dirty = False
 _mic_task: asyncio.Task | None = None
 _ray_ban_audio_active = False   # True while /ws/audio-in is connected; bypasses face gate
+_record_buffer: list[str] = []  # record mode: compressed note per speech chunk
 
 
 async def _stop_listening():
@@ -101,8 +103,10 @@ async def _stop_listening():
     global _mic_task, _transcript, _dirty
     _transcript.clear()
     _dirty = False
+    _record_buffer.clear()
     face_gate.stop()
     await broadcast({"type": "forgotten"})
+    await broadcast({"type": "record_cleared"})
     await broadcast({"type": "status", "text": "idle"})
     if _mic_task and not _mic_task.done():
         _mic_task.cancel()
@@ -242,6 +246,31 @@ async def flusher():
                 if not _transcript:  # buffer just emptied — tell the HUD to clear
                     await broadcast({"type": "forgotten"})
 
+        # RECORD MODE — two-stage passive summariser
+        if CAPTURE_MODE == "record":
+            # Stage 1: compress the latest speech chunk after the usual silence gap
+            if _dirty and now - _last_speech >= SILENCE_FLUSH_SECONDS:
+                _dirty = False
+                chunk = " ".join(e["t"] for e in _transcript)[-MAX_BUFFER_CHARS:]
+                _transcript.clear()
+                note = await asyncio.to_thread(agent.compress_sentence, chunk)
+                if note and note.lower() not in ("none", ""):
+                    _record_buffer.append(note)
+                    await broadcast({"type": "record_note", "text": note})
+            # Stage 2: after a long gap of silence, synthesise all notes → command
+            if _record_buffer and not _dirty and _last_speech > 0 and now - _last_speech >= RECORD_SILENCE_SECONDS:
+                notes = list(_record_buffer)
+                _record_buffer.clear()
+                await broadcast({"type": "record_cleared"})
+                command = await asyncio.to_thread(agent.synthesize_command, notes)
+                if command and command.lower() not in ("none", ""):
+                    directive = (
+                        "Direct command from the wearer — perform it now, "
+                        "inferring the action verb and app if implied: " + command
+                    )
+                    await _process_and_broadcast(directive)
+            continue  # record mode owns its own flow; never fall through
+
         # Constraint 2 — clear after a lull: nothing pending and the room has
         # gone quiet, so the moment passed. Forget what was said.
         if _transcript and not _dirty and now - _last_speech > IDLE_CLEAR_SECONDS:
@@ -378,12 +407,14 @@ async def ws_endpoint(ws: WebSocket):
                     _mic_task = asyncio.create_task(mic_loop())
             elif cmd == "capturemode":
                 m = data.get("mode")
-                if m in ("conversation", "solo"):
+                if m in ("conversation", "solo", "record"):
                     CAPTURE_MODE = m
                     _transcript.clear()
                     _dirty = False
-                    if m == "solo":
-                        face_gate.stop()  # release the camera in Solo mode
+                    _record_buffer.clear()
+                    await broadcast({"type": "record_cleared"})
+                    if m in ("solo", "record"):
+                        face_gate.stop()  # no camera gate in solo / record mode
                     elif _mic_task and not _mic_task.done():
                         face_gate.start()  # back to Conversation while miced → camera on
                     await broadcast({"type": "capturemode", "mode": CAPTURE_MODE})

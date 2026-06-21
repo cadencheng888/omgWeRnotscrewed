@@ -24,9 +24,27 @@ export function classifyAction(raw) {
     return o
   }
 
-  if (text.startsWith('📅')) return finish({ tool: 'create_calendar_event', accent: '#34d399', title: title || 'Event', detail: text.replace(/^📅\s*/, ''), source: 'Calendar' })
-  if (text.startsWith('🔁')) return finish({ tool: 'reschedule_event', accent: '#818cf8', title: title || 'Rescheduled', detail: text.replace(/^🔁\s*/, ''), source: 'Calendar' })
-  if (text.startsWith('🗑️') || text.startsWith('🗑')) return finish({ tool: 'cancel_event', accent: '#fbbf24', title: title || 'Cancelled', detail: text.replace(/^🗑️?\s*/, ''), cancelled: true, source: 'Calendar' })
+  if (text.startsWith('📅')) {
+    const body = text.replace(/^📅\s*/, '')
+    const eTitle = (body.match(QUOTE) || [])[1] || 'Event'
+    const dash = body.indexOf('—')
+    const detail = dash !== -1 ? body.slice(dash + 1).trim() : body.replace(QUOTE, '').trim()
+    return finish({ tool: 'create_calendar_event', accent: '#34d399', title: eTitle, detail, source: 'Calendar' })
+  }
+  if (text.startsWith('🔁')) {
+    const body = text.replace(/^🔁\s*/, '')
+    const eTitle = (body.match(QUOTE) || [])[1] || 'Rescheduled'
+    const dash = body.indexOf('—')
+    const detail = dash !== -1 ? body.slice(dash + 1).trim() : body.replace(QUOTE, '').trim()
+    return finish({ tool: 'reschedule_event', accent: '#818cf8', title: eTitle, detail, source: 'Calendar' })
+  }
+  if (text.startsWith('🗑️') || text.startsWith('🗑')) {
+    const body = text.replace(/^🗑️?\s*/, '')
+    const eTitle = (body.match(QUOTE) || [])[1] || 'Cancelled'
+    const dash = body.indexOf('—')
+    const detail = dash !== -1 ? body.slice(dash + 1).trim() : body.replace(QUOTE, '').trim()
+    return finish({ tool: 'cancel_event', accent: '#fbbf24', title: eTitle, detail, cancelled: true, source: 'Calendar' })
+  }
   if (text.startsWith('🧩')) {
     const m = text.match(/\[([^/\]]+)\/([^\]]+)\]/)
     const app = m ? m[1] : 'action'

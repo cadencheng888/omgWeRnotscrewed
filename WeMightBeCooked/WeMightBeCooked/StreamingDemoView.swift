@@ -134,8 +134,8 @@ struct StreamingDemoView: View {
             manager.stopTranscription()
             appendLog("Stopped transcription")
         } else {
-            manager.startTranscription()
-            appendLog("Started transcription")
+            manager.startTranscription(useBluetooth: false)
+            appendLog("Started transcription (iPhone mic)")
         }
     }
 

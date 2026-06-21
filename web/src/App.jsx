@@ -142,7 +142,7 @@ function ActionCard({ c }) {
 
 export default function App() {
   const { state, send } = useAgentSocket()
-  const { status, calMode, capMode, face, rayban, finals, interim, level, entities, cards, thinking, clarify, ttl, location } = state
+  const { status, calMode, capMode, face, rayban, finals, interim, level, entities, cards, thinking, clarify, ttl, location, recordNotes } = state
   const [camOpen, setCamOpen] = useState(false)
 
   const st = STATUS[status] || STATUS.idle
@@ -178,7 +178,7 @@ export default function App() {
           <Chip color="#34d399">{ttl > 0 ? `auto-deletes ${ttl}s` : 'ephemeral'}</Chip>
           {location && <Chip color="#38bdf8">📍 {location}</Chip>}
           <div className="flex items-center rounded-lg border border-white/10 overflow-hidden text-[13px]">
-            {[['conversation', 'Conversation'], ['solo', 'Solo']].map(([m, label]) => (
+            {[['conversation', 'Convo'], ['solo', 'Solo'], ['record', 'Record']].map(([m, label]) => (
               <button
                 key={m}
                 onClick={() => send('capturemode', { mode: m })}
@@ -221,7 +221,9 @@ export default function App() {
           )}
           <div className="flex-1 min-h-0 overflow-y-auto flex flex-col justify-end gap-2 mono text-[15px] leading-relaxed">
             {finals.length === 0 && !interim ? (
-              <div className="m-auto text-zinc-600 text-sm">{capMode === 'solo' ? 'say “mark this, …”' : 'waiting for speech…'}</div>
+              <div className="m-auto text-zinc-600 text-sm">
+                {capMode === 'solo' ? 'say "mark this, …"' : capMode === 'record' ? 'listening for plans…' : 'waiting for speech…'}
+              </div>
             ) : (
               <>
                 {finals.map((f, i) => {
@@ -234,6 +236,16 @@ export default function App() {
               </>
             )}
           </div>
+          {recordNotes.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-white/[0.06]">
+              <div className="mono text-[10px] text-zinc-600 tracking-wider mb-1.5">NOTES</div>
+              <div className="flex flex-wrap gap-1.5">
+                {recordNotes.map((n, i) => (
+                  <span key={i} className="mono text-[11px] px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-300 border border-indigo-500/20" style={{ animation: 'fadeUp .25s ease both' }}>{n}</span>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
 
         {/* connector */}
