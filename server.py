@@ -254,30 +254,27 @@ async def flusher():
             _transcript = _transcript[-10:]
 
         if CAPTURE_MODE == "solo":
-            # Only act on a command prefixed with the wake phrase ("mark this, …").
+            # Check for optional wake phrase — if present, extract the command after it.
+            # If absent, treat the entire utterance as the intent (no gating required).
             i = conversation.lower().rfind(WAKE_PHRASE)
-            if i == -1:
-                continue  # no trigger yet — keep listening (buffer ages out on its own)
-            command = conversation[i + len(WAKE_PHRASE):].lstrip(" ,.:;—-").strip()
-            if not command:
-                # heard "mark this" but the command hasn't been spoken yet —
-                # DON'T clear; wait so the next utterance combines with the trigger.
-                continue
-            # The command can be split across a mid-sentence pause. If it still
-            # looks unfinished (one word, or ends on a transitive verb /
-            # preposition), keep waiting a few extra seconds for the rest rather
-            # than firing "find" alone — but give up after the grace so a truly
-            # terse command still acts.
+            if i != -1:
+                command = conversation[i + len(WAKE_PHRASE):].lstrip(" ,.:;—-").strip()
+                if not command:
+                    # heard "mark this" but the command hasn't been spoken yet —
+                    # DON'T clear; wait so the next utterance combines with the trigger.
+                    continue
+            else:
+                command = conversation.strip()
+
+            # If the command still looks unfinished (one word, or ends on a transitive
+            # verb / preposition), keep waiting a few extra seconds for the rest.
             words = command.split()
-            tail = words[-1].lower().strip(",.?!;:")
+            tail = words[-1].lower().strip(",.?!;:") if words else ""
             unfinished = len(words) < 2 or tail in _DANGLING_TAIL
             if unfinished and (now - _last_speech) < SOLO_INCOMPLETE_GRACE:
                 _dirty = True  # re-check next tick; combine with any further speech
                 continue
-            _transcript = []  # consume the whole trigger + command
-            # "mark this" is an explicit do-something signal, so treat whatever
-            # follows as an imperative and let Claude infer a missing verb/app
-            # (e.g. "Judy Hopps plushie Amazon wishlist" -> add_to_wishlist).
+            _transcript = []  # consume the whole buffer
             directive = (
                 "Direct command from the wearer — perform it now, inferring the "
                 "action verb and app if implied: " + command
@@ -286,6 +283,7 @@ async def flusher():
             await _process_and_broadcast(directive)
             continue
 
+        _write_intention(conversation)
         await _process_and_broadcast(conversation)
         # NOT cleared instantly on action — the buffer lingers ~20s (see
         # IDLE_CLEAR_SECONDS / MAX_AGE_SECONDS) so quick follow-ups like
