@@ -16,3 +16,12 @@ __pycache__/
 
 # Output
 deals_results.json
+
+# Node / web build
+node_modules/
+web/node_modules/
+
+# Claude
+.claude
+# Claude Code local dir (worktrees, etc.)
+.claude/

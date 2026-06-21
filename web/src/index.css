@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  background: #09090b; /* zinc-950 */
+  color: #e4e4e7;      /* zinc-200 */
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace; }
+
+/* subtle ambient grain/vignette so panels don't float in a void */
+.ambient::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(900px 500px at 78% -8%, rgba(63,63,70,0.35), transparent 60%),
+    radial-gradient(700px 460px at 12% 108%, rgba(39,39,42,0.5), transparent 60%);
+}
+
+@keyframes pulseDot { 0%,100% { opacity: 1 } 50% { opacity: .3 } }
+@keyframes popIn { from { opacity: 0; transform: translateY(8px) scale(.98) } to { opacity: 1; transform: none } }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
+@keyframes think { 0%,100% { opacity: .3; transform: translateY(0) } 50% { opacity: 1; transform: translateY(-3px) } }
+@keyframes breathe { 0%,100% { transform: scale(.9); opacity: .55 } 50% { transform: scale(1.12); opacity: 1 } }
+
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,.08); border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }

@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 import agent
 import calendar_tool
 from demo import CONVO
+from face_gate import FaceGate
 from transcribe import stream_microphone
 
 # --- Calendar mode: real if credentials exist, otherwise a mock so the HUD
@@ -55,12 +56,21 @@ CAL_EMBED = os.environ.get(
 app = FastAPI()
 clients: set[WebSocket] = set()
 
-# --- pipeline buffer (same logic as main.py) ---
-SILENCE_FLUSH_SECONDS = 1.5
-# Keep the rolling window short so recent clean speech dominates and old
-# chatter / rejections don't linger and poison new requests.
+# Capture modes (distinct from MODE, which is the calendar mock/live badge):
+#   conversation — passive, only captures when a face is in view (FaceGate)
+#   solo         — only acts on commands prefixed with the wake phrase
+CAPTURE_MODE = "conversation"
+WAKE_PHRASE = "mark this"
+face_gate = FaceGate()
+
+# --- pipeline buffer (ephemeral: held only until it acts or the moment passes) ---
+SILENCE_FLUSH_SECONDS = 1.5     # quiet gap before we send a flush to the agent
+IDLE_CLEAR_SECONDS = 20         # clear the buffer ~20s after the last speech
+MAX_AGE_SECONDS = 20            # hard guarantee: nothing held older than ~20s
+# Short rolling window so recent clean speech dominates and old chatter doesn't
+# linger and poison new requests.
 MAX_BUFFER_CHARS = 600
-_transcript: list[str] = []
+_transcript: list[dict] = []   # each: {"t": text, "ts": monotonic}
 _last_speech = 0.0
 _dirty = False
 _mic_task: asyncio.Task | None = None
@@ -76,13 +86,18 @@ async def broadcast(msg: dict):
 
 def on_final(text: str):
     global _last_speech, _dirty
-    _transcript.append(text)
-    _last_speech = time.monotonic()
+    if CAPTURE_MODE == "conversation" and not face_gate.is_present():
+        return  # no face in view — not capturing
+    now = time.monotonic()
+    _transcript.append({"t": text, "ts": now})
+    _last_speech = now
     _dirty = True
     asyncio.create_task(broadcast({"type": "caption", "final": True, "text": text}))
 
 
 def on_interim(text: str):
+    if CAPTURE_MODE == "conversation" and not face_gate.is_present():
+        return
     asyncio.create_task(broadcast({"type": "caption", "final": False, "text": text}))
 
 
@@ -90,46 +105,121 @@ def on_level(level: float):
     asyncio.create_task(broadcast({"type": "level", "value": round(level, 3)}))
 
 
-async def _process_and_broadcast(conversation: str):
+def on_entities(entities):
+    agent.add_entities(entities)  # cache for pronoun resolution ("buy them")
+    vals = [e.get("value") for e in entities if e.get("value")]
+    if vals:
+        asyncio.create_task(broadcast({"type": "entities", "values": vals}))
+
+
+async def _process_and_broadcast(conversation: str) -> bool:
     print(f"→ sending to Claude: {conversation!r}")
     await broadcast({"type": "status", "text": "thinking"})
+    acted = False
     try:
         results = await asyncio.to_thread(agent.process_transcript, conversation)
         print(f"← Claude result: {results}")
         if results:
             for line in results:
-                await broadcast({"type": "action", "text": line})
+                if line.startswith("❓CLARIFY|"):
+                    parts = line.split("|", 2)
+                    q = parts[1] if len(parts) > 1 else "Which one did you mean?"
+                    opts = [o for o in (parts[2].split("||") if len(parts) > 2 else []) if o]
+                    await broadcast({"type": "clarify", "question": q, "options": opts})
+                else:
+                    acted = True
+                    await broadcast({"type": "action", "text": line})
         else:
             await broadcast({"type": "action", "text": "💬 (no action — chit-chat)", "muted": True})
     except Exception as e:
         print(f"✗ error: {e!r}")
         await broadcast({"type": "action", "text": f"⚠️ {e}", "muted": True})
     await broadcast({"type": "status", "text": "listening"})
+    return acted
 
 
 async def flusher():
     global _dirty, _transcript
     while True:
         await asyncio.sleep(0.25)
+        now = time.monotonic()
+
+        # Backstop: drop any utterance older than the max age.
+        if _transcript:
+            kept = [e for e in _transcript if now - e["ts"] < MAX_AGE_SECONDS]
+            if len(kept) != len(_transcript):
+                _transcript = kept
+                if not _transcript:  # buffer just emptied — tell the HUD to clear
+                    await broadcast({"type": "forgotten"})
+
+        # Constraint 2 — clear after a lull: nothing pending and the room has
+        # gone quiet, so the moment passed. Forget what was said.
+        if _transcript and not _dirty and now - _last_speech > IDLE_CLEAR_SECONDS:
+            _transcript = []
+            await broadcast({"type": "forgotten"})
+            continue
+
         if not _dirty:
             continue
-        if time.monotonic() - _last_speech < SILENCE_FLUSH_SECONDS:
+        if now - _last_speech < SILENCE_FLUSH_SECONDS:
             continue
         _dirty = False
-        # Rolling context: keep recent speech so a request split across several
-        # pauses ("schedule an event" … "for 6pm" … "at a cafe") is seen as one
-        # whole request, not one fragment at a time. Dedup prevents repeats.
-        conversation = " ".join(_transcript)[-MAX_BUFFER_CHARS:]
+
+        # Rolling context so a request split across pauses is seen as one whole.
+        conversation = " ".join(e["t"] for e in _transcript)[-MAX_BUFFER_CHARS:]
         if len(_transcript) > 10:
             _transcript = _transcript[-10:]
+
+        if CAPTURE_MODE == "solo":
+            # Only act on a command prefixed with the wake phrase ("mark this, …").
+            i = conversation.lower().rfind(WAKE_PHRASE)
+            if i == -1:
+                continue  # no trigger yet — keep listening (buffer ages out on its own)
+            command = conversation[i + len(WAKE_PHRASE):].lstrip(" ,.:;—-").strip()
+            if not command:
+                # heard "mark this" but the command hasn't been spoken yet —
+                # DON'T clear; wait so the next utterance combines with the trigger.
+                continue
+            _transcript = []  # consume the whole trigger + command
+            # "mark this" is an explicit do-something signal, so treat whatever
+            # follows as an imperative and let Claude infer a missing verb/app
+            # (e.g. "Judy Hopps plushie Amazon wishlist" -> add_to_wishlist).
+            directive = (
+                "Direct command from the wearer — perform it now, inferring the "
+                "action verb and app if implied: " + command
+            )
+            await _process_and_broadcast(directive)
+            continue
+
         await _process_and_broadcast(conversation)
+        # NOT cleared instantly on action — the buffer lingers ~20s (see
+        # IDLE_CLEAR_SECONDS / MAX_AGE_SECONDS) so quick follow-ups like
+        # "actually move it to 8" keep context. Dedup stops the lingering text
+        # from re-firing the same action.
+
+
+async def _face_status_loop():
+    last = None
+    while True:
+        await asyncio.sleep(0.4)
+        state = ("off" if not face_gate.camera_ok()
+                 else "present" if face_gate.is_present() else "absent")
+        if state != last:
+            last = state
+            await broadcast({"type": "face", "state": state})
 
 
 async def mic_loop():
+    if CAPTURE_MODE == "conversation":
+        face_gate.start()  # on-device camera gate (Conversation mode only)
+    asyncio.create_task(_face_status_loop())
     await broadcast({"type": "status", "text": "listening"})
     try:
         await asyncio.gather(
-            stream_microphone(on_final, on_interim, on_level=on_level), flusher()
+            stream_microphone(
+                on_final, on_interim, on_level=on_level, on_entities=on_entities
+            ),
+            flusher(),
         )
     except Exception as e:
         await broadcast({"type": "status", "text": "mic error"})
@@ -139,6 +229,7 @@ async def mic_loop():
 async def run_demo():
     """Replay the scripted conversation through the real Claude pipeline."""
     agent._recent_events.clear()
+    agent._recent_actions.clear()
     await broadcast({"type": "status", "text": "demo running"})
     for line in CONVO:
         # Stream word-by-word so captions look live.
@@ -155,7 +246,7 @@ async def run_demo():
 
 @app.get("/")
 async def index():
-    return FileResponse("static/index.html")
+    return FileResponse("web/dist/index.html")
 
 
 @app.get("/config")
@@ -165,10 +256,11 @@ async def config():
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
-    global _mic_task, _dirty
+    global _mic_task, _dirty, CAPTURE_MODE
     await ws.accept()
     clients.add(ws)
     await ws.send_json({"type": "status", "text": "idle", "mode": MODE})
+    await ws.send_json({"type": "capturemode", "mode": CAPTURE_MODE})
     try:
         while True:
             data = await ws.receive_json()
@@ -178,8 +270,28 @@ async def ws_endpoint(ws: WebSocket):
             elif cmd == "mic":
                 if _mic_task is None or _mic_task.done():
                     _mic_task = asyncio.create_task(mic_loop())
+            elif cmd == "capturemode":
+                m = data.get("mode")
+                if m in ("conversation", "solo"):
+                    CAPTURE_MODE = m
+                    _transcript.clear()
+                    _dirty = False
+                    if m == "solo":
+                        face_gate.stop()  # release the camera in Solo mode
+                    elif _mic_task and not _mic_task.done():
+                        face_gate.start()  # back to Conversation while miced → camera on
+                    await broadcast({"type": "capturemode", "mode": CAPTURE_MODE})
+            elif cmd == "answer":
+                # User picked a clarification option — resolve it through the
+                # agent (the entity cache still holds the referenced item).
+                ans = (data.get("text") or "").strip()
+                if ans:
+                    await broadcast({"type": "caption", "final": True, "text": ans})
+                    asyncio.create_task(_process_and_broadcast(ans))
             elif cmd == "reset":
                 agent._recent_events.clear()
+                agent._recent_actions.clear()
+                agent._entity_cache.clear()
                 _transcript.clear()
                 _dirty = False
                 await broadcast({"type": "reset"})
@@ -188,7 +300,7 @@ async def ws_endpoint(ws: WebSocket):
         clients.discard(ws)
 
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/assets", StaticFiles(directory="web/dist/assets"), name="assets")
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ definition here + a handler in `execute_tool`. Claude figures out when to use it
 
 import datetime
 import os
+import re
 import time
 import zoneinfo
 
@@ -27,6 +28,14 @@ client = Anthropic()  # reads ANTHROPIC_API_KEY from env
 # Tracks recently created events for dedup and cancellation.
 # Each entry: {"event_id": str, "title": str, "start_iso": str, "created_at": float}
 _recent_events: list[dict] = []
+# Recently performed perform_action calls, for dedup (rolling context re-sends
+# the same utterance on every flush, which would otherwise re-fire the action).
+_recent_actions: list[dict] = []
+
+# Entity cache: Deepgram-detected nouns (products, people, places). Distilled and
+# longer-lived than the raw transcript, so a later "buy them" can be resolved.
+ENTITY_TTL_SECONDS = 180  # ~3 minutes
+_entity_cache: list[dict] = []  # each: {"value": str, "label": str, "ts": monotonic}
 # How long we remember a created event — used both to suppress duplicate
 # re-confirmations AND to let later "cancel that" / "reschedule" target it.
 DEDUP_WINDOW_SECONDS = 3600  # 1 hour
@@ -247,6 +256,73 @@ TOOLS = [
             "required": ["new_start_iso"],
         },
     },
+    {
+        "name": "perform_action",
+        "description": (
+            "Perform ANY actionable request that is NOT a calendar event — across "
+            "any app or service, INCLUDING removals/undo. Examples: add OR remove "
+            "an item from an Amazon cart, send OR unsend a text/iMessage, send an "
+            "email, set OR delete a reminder/to-do, play OR stop music, get "
+            "directions, call someone, take a note, search the web, order food, "
+            "turn smart-home devices on OR off. Use this whenever the wearer "
+            "expresses a concrete actionable intent the calendar tools don't cover. "
+            "For removals use a clear verb (remove_from_cart, delete_reminder, "
+            "turn_off, stop, unsend). Be eager: if there is a clear action, capture it."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "app": {
+                    "type": "string",
+                    "description": "App/service: amazon, messages, email, reminders, spotify, maps, phone, notes, web, food, smart_home, or other.",
+                },
+                "action": {
+                    "type": "string",
+                    "description": "Action verb, e.g. add_to_cart, send_message, send_email, set_reminder, play, navigate, call, create_note, search, order, turn_on.",
+                },
+                "target": {
+                    "type": "string",
+                    "description": "Main object of the action — item, person, place, query, or device.",
+                },
+                "details": {
+                    "type": "string",
+                    "description": "Extra specifics: quantity, message body, address, time, etc.",
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "One concise sentence describing the action, e.g. 'Add AirPods Pro to your Amazon cart' or 'Text Mom: running 10 min late'.",
+                },
+            },
+            "required": ["app", "action", "summary"],
+        },
+    },
+    {
+        "name": "clarification_needed",
+        "description": (
+            "Use ONLY when the wearer issues a command with a pronoun (it, them, "
+            "that, those, these) or an underspecified target AND you cannot "
+            "confidently resolve what they mean from the recent entities/context — "
+            "especially for high-stakes actions (buying, ordering, sending). Instead "
+            "of guessing, ask. Provide a short question and 2-4 concrete options "
+            "drawn from the recent entities/context. If the target IS clear (only one "
+            "plausible match), do NOT use this — just act."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": "Short question, e.g. 'Which one do you want to buy?'",
+                },
+                "options": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "2-4 concrete choices from recent context, e.g. ['the Nike Air Forces', 'the pizza'].",
+                },
+            },
+            "required": ["question", "options"],
+        },
+    },
 ]
 
 
@@ -261,7 +337,7 @@ def build_system_prompt() -> str:
     Shared by process_transcript() and the test scripts so they stay in sync.
     """
     return f"""
-You are an assistant embedded in smart glasses. You passively receive transcribed snippets of the wearer's real-world conversations and must detect actionable plans, events, reminders, and to-dos.
+You are a general-purpose assistant embedded in smart glasses. You passively receive transcribed snippets of the wearer's real-world conversations AND direct spoken commands, and you turn ANY actionable intent into an action — across any app or service: calendar, shopping (Amazon), messaging/texts, email, reminders/to-dos, music, maps/directions, phone calls, notes, web search, food orders, smart home, and more. Capture every concrete action you hear; you are NOT limited to the calendar.
 
 Resolve relative dates and times like "6pm", "tonight", "tomorrow", "next Friday", and "in 20 minutes" against the current time: {_now_context()} (timezone {TZ_NAME}).
 
@@ -269,6 +345,30 @@ You cannot ask the wearer follow-up questions. They are not in a chat and cannot
 
 DIRECT REQUESTS TO YOU:
 The wearer often speaks directly to you, the assistant, with commands like "schedule an event for tomorrow at 7pm", "add a meeting at 3", "put dinner on my calendar Friday", "move it to 8", or "cancel that". Treat any such direct request as an explicit instruction and ACT ON IT IMMEDIATELY. A direct request that includes a time is always a commitment — create the event even if no specific activity is named, using title "Event" and event_type "other" when unspecified. Do not dismiss a direct scheduling command as chit-chat.
+
+LISTEN FOR INTENT (not just commands):
+You are passively listening to natural conversation — so act on clearly expressed intentions and needs, NOT only direct commands. If someone says they are going to, want to, need to, are trying to, or should do something concrete, capture it as an action immediately:
+- "I'm actually trying to buy these Nike Air Forces on Amazon" -> perform_action(app="amazon", action="add_to_cart", target="Nike Air Forces", summary="Add Nike Air Forces to your Amazon cart")
+- "I really wanna get those AirPods" -> perform_action(app="amazon", action="add_to_cart", target="AirPods", summary="Add AirPods to your Amazon cart")
+- "I need to text Sarah I'll be late" -> perform_action(app="messages", action="send_message", target="Sarah", details="I'll be late", summary="Text Sarah: I'll be late")
+- "I gotta order more coffee" -> perform_action(app="amazon", action="add_to_cart", target="coffee", summary="Add coffee to your Amazon cart")
+- "we should grab dinner at 7 tomorrow" -> create_calendar_event(...)
+A stated intention to act is ENOUGH — you do not need an imperative "do X" command.
+
+ACTIVE vs PASSIVE — match the action to HOW it's said:
+- ACTIVE (a command or clear intent to do it NOW) -> do the direct action:
+  - "play Faded" / "play this song" -> perform_action(app="spotify", action="play", target="Faded", summary="Play Faded on Spotify")
+  - "I'm trying to buy these" / "add these to my cart" -> perform_action(app="amazon", action="add_to_cart", ...)
+  - "text Sarah I'm late" -> perform_action(app="messages", action="send_message", ...)
+- PASSIVE (liking, admiring, or wanting something, with NO command to do it now) -> do the SOFT "save" action, NOT the active one:
+  - "I really like this song" / "this song is great" / "this song goes hard" -> perform_action(app="spotify", action="like", target=<song>, summary="Add <song> to your Liked Songs") — do NOT play it
+  - "I love these Nike Air Forces" / "these shoes are so clean" -> perform_action(app="amazon", action="add_to_wishlist", target="Nike Air Forces", summary="Save Nike Air Forces to your wishlist") — do NOT add to cart
+Only call no tool when there is no concrete thing to save or do at all (generic chit-chat: "nice weather", "that was funny").
+
+AMBIGUOUS COMMANDS (ask, don't guess):
+If the wearer uses a pronoun (it, them, that, those, these) or an underspecified target, resolve it from the "Recently mentioned" entities/context. If you CANNOT confidently tell which one they mean — there are multiple plausible targets, or none match — DO NOT guess, especially for high-stakes actions (buying, ordering, sending). Call clarification_needed with a short question and 2-4 concrete options from the recent context. Example: recently mentioned "Nike Air Forces" and "pizza"; wearer says "actually, buy it" -> clarification_needed(question="Which one do you want to buy?", options=["the Nike Air Forces", "the pizza"]).
+
+If exactly ONE recently-mentioned entity plausibly matches, ACT on it immediately and do NOT ask — even for purchases (e.g., only "Nike Air Forces" was mentioned and they say "buy them" -> perform_action add_to_cart for the Nike Air Forces). Only use clarification_needed when there are TWO OR MORE plausible targets, or NONE at all.
 
 Before creating an event, classify the plan:
 1. Is the wearer personally involved?
@@ -297,10 +397,10 @@ When extracting an event, infer as many fields as possible:
 - notes with any useful context
 
 ACTION RULES:
-1. Create an event only when the wearer appears to have a real plan with a clear enough time/date.
-2. Focus only on calendar events for now (create, reschedule, cancel). Do not create to-dos or reminders.
-3. If the transcript contains a clear time/date and clear commitment, act even if some minor details are missing.
-4. If the transcript is garbled, use only the clear parts and ignore noise.
+1. For real-world plans/events with a time/date, use the calendar tools (create_calendar_event / reschedule_event / cancel_event).
+2. For EVERY OTHER actionable request — shopping, texts, emails, reminders, music, directions, calls, notes, web searches, food orders, smart-home, etc. — call perform_action. Do not restrict yourself to the calendar; capture any concrete action across any app.
+3. If the request contains a clear intent, act even if some minor details are missing.
+4. If the transcript is garbled, use only the clear parts and ignore noise. You may call multiple tools if multiple actions are requested.
 
 RECONFIRMATIONS:
 If the transcript is only repeating, confirming, or clarifying an already-created plan, do not create a duplicate event.
@@ -354,6 +454,24 @@ Create an event:
 - "see you tomorrow at 3"
 - "call me at 6"
 
+OTHER ACTIONS (perform_action):
+Capture any non-calendar action the wearer wants done. Be eager but only on concrete intents, not vague wishes. Fill app, action, target/details, and a one-sentence summary. Examples:
+- "add AirPods to my Amazon cart" -> perform_action(app="amazon", action="add_to_cart", target="AirPods", summary="Add AirPods to your Amazon cart")
+- "text mom I'm running 10 minutes late" -> perform_action(app="messages", action="send_message", target="Mom", details="running 10 minutes late", summary="Text Mom: running 10 minutes late")
+- "remind me to submit the form tonight" -> perform_action(app="reminders", action="set_reminder", target="submit the form", details="tonight", summary="Reminder: submit the form tonight")
+- "play some lo-fi" -> perform_action(app="spotify", action="play", target="lo-fi", summary="Play lo-fi on Spotify")
+- "email Sam the deck" -> perform_action(app="email", action="send_email", target="Sam", details="the deck", summary="Email Sam the deck")
+- "order a large pepperoni pizza" -> perform_action(app="food", action="order", target="large pepperoni pizza", summary="Order a large pepperoni pizza")
+
+Removals/undo are just actions too — use a remove/delete/turn_off/stop/unsend verb:
+- "actually remove the Nike Air Forces from my cart" -> perform_action(app="amazon", action="remove_from_cart", target="Nike Air Forces", summary="Remove Nike Air Forces from your Amazon cart")
+- "delete the reminder to submit the form" -> perform_action(app="reminders", action="delete_reminder", target="submit the form", summary="Delete the reminder: submit the form")
+- "turn off the living room lights" -> perform_action(app="smart_home", action="turn_off", target="living room lights", summary="Turn off the living room lights")
+- "stop the music" -> perform_action(app="spotify", action="stop", target="music", summary="Stop the music")
+(Use cancel_event ONLY for calendar events; use perform_action removals for every other app.)
+
+For passive likes/admiration, use the soft "save" action (Spotify like, wishlist) per ACTIVE vs PASSIVE above. Only skip genuinely non-actionable chit-chat with nothing to save or do ("nice weather today", "that was hilarious").
+
 EXAMPLES:
 Transcript: "Let's get lunch tomorrow at noon. Yeah, sounds good."
 Tool: create_calendar_event(title="Lunch", event_type="lunch", start_iso=<resolved noon tomorrow>)
@@ -376,8 +494,61 @@ Tool: reschedule_event(new_start_iso=<resolved 8pm today>)
 Transcript after creating both lunch and dinner: "I can't make the lunch anymore."
 Tool: cancel_event(event_description="lunch")
 
-ONLY when there is genuinely no actionable plan, event, reminder, cancellation, or to-do, call no tool and reply "none".
+ONLY when there is genuinely no actionable request of any kind — pure chit-chat — call no tool and reply "none".
 """
+
+
+def add_entities(entities) -> None:
+    """Cache Deepgram-detected entities with a TTL so pronoun commands
+    ('buy them', 'play that') can be resolved later, even after the raw
+    transcript has been wiped."""
+    now = time.monotonic()
+    for e in entities or []:
+        value = (e.get("value") or "").strip()
+        if not value:
+            continue
+        label = (e.get("label") or e.get("type") or "").strip()
+        for c in _entity_cache:  # refresh if already cached
+            if c["value"].lower() == value.lower():
+                c["ts"] = now
+                c["label"] = label or c["label"]
+                break
+        else:
+            _entity_cache.append({"value": value, "label": label, "ts": now})
+
+
+def _entity_context() -> str:
+    """Recent entities (most recent first) for resolving pronouns."""
+    now = time.monotonic()
+    _entity_cache[:] = [c for c in _entity_cache if now - c["ts"] < ENTITY_TTL_SECONDS]
+    if not _entity_cache:
+        return ""
+    recent = sorted(_entity_cache, key=lambda c: c["ts"], reverse=True)[:8]
+    items = ", ".join(
+        c["value"] + (f" ({c['label']})" if c["label"] else "") for c in recent
+    )
+    return (
+        "Recently mentioned (most recent first) — use these to resolve pronouns "
+        "like 'it/them/that'; prefer the most recent unless context says otherwise: "
+        + items
+    )
+
+
+def _recent_actions_context() -> str:
+    """What the wearer has already done this session, so a removal targets the
+    right place (e.g. it was add_to_wishlist -> undo with remove_from_wishlist)."""
+    now = time.monotonic()
+    _recent_actions[:] = [a for a in _recent_actions if now - a["created_at"] < DEDUP_WINDOW_SECONDS]
+    active = [a for a in _recent_actions if not a.get("removed")]
+    if not active:
+        return ""
+    lines = [f"- {a['summary']} [{a['app']}/{a['action']}]" for a in active[-8:]]
+    return (
+        "Things you've already done this session — to undo one, use the SAME app "
+        "with a remove/delete/turn_off verb that matches how it was added (if it "
+        "was add_to_wishlist, undo with remove_from_wishlist, NOT remove_from_cart):\n"
+        + "\n".join(lines)
+    )
 
 
 def _recent_events_context() -> str:
@@ -399,9 +570,9 @@ def process_transcript(conversation: str) -> list[str]:
     system = build_system_prompt()
 
     user_content = f"Conversation so far:\n{conversation}"
-    context = _recent_events_context()
-    if context:
-        user_content = f"{context}\n\n{user_content}"
+    parts = [p for p in (_entity_context(), _recent_actions_context(), _recent_events_context()) if p]
+    if parts:
+        user_content = "\n\n".join(parts) + "\n\n" + user_content
 
     response = client.messages.create(
         model="claude-haiku-4-5",  # fastest + cheapest; great for this task
@@ -415,7 +586,8 @@ def process_transcript(conversation: str) -> list[str]:
     for block in response.content:
         if block.type == "tool_use":
             result = execute_tool(block.name, block.input)
-            logs.append(result)
+            if result:  # None = deduped/skipped — don't emit a card
+                logs.append(result)
     return logs
 
 
@@ -447,7 +619,7 @@ def execute_tool(name: str, args: dict) -> str:
         # Deduplicate: if we already created this event recently, skip it.
         for recent in _recent_events:
             if recent["key"] == key:
-                return f"⏭️  Already scheduled '{args['title']}' — skipping reconfirmation"
+                return None  # already scheduled this — no duplicate card
 
         # Preserve structured metadata in notes without requiring calendar_tool changes.
         notes_parts = []
@@ -485,7 +657,7 @@ def execute_tool(name: str, args: dict) -> str:
             "event_id": event_id,
             "created_at": now,
         })
-        return result
+        return result + f" ⟦calendar:{args['title'].strip().lower()}⟧"
 
     if name == "cancel_event":
         event = _find_recent_event(args.get("event_description"))
@@ -494,7 +666,8 @@ def execute_tool(name: str, args: dict) -> str:
         if not event.get("event_id"):
             return f"⚠️  Can't cancel '{event['title']}' — event ID not available"
         _recent_events.remove(event)
-        return calendar_tool.delete_event(event["event_id"])
+        return (calendar_tool.delete_event(event["event_id"])
+                + f" ⟦calendar:{event['title'].strip().lower()}⟧")
 
     if name == "reschedule_event":
         new_start = args.get("new_start_iso")
@@ -514,5 +687,48 @@ def execute_tool(name: str, args: dict) -> str:
         event["start_iso"] = new_start
         event["key"] = _event_key(event["title"], new_start)
         return result
+
+    if name == "perform_action":
+        app = (args.get("app") or "app").strip()
+        action = (args.get("action") or "do").strip()
+        target = (args.get("target") or "").strip()
+        summary = (args.get("summary") or f"{action} {target}").strip()
+
+        now = time.monotonic()
+        _recent_actions[:] = [a for a in _recent_actions if now - a["created_at"] < DEDUP_WINDOW_SECONDS]
+
+        # Dedup: rolling context re-sends the same utterance on every flush.
+        dkey = f"{app}|{action}|{target or summary}".lower()
+        if any(a["dkey"] == dkey for a in _recent_actions):
+            return None
+
+        # card_key (app + item) links an add to its later removal, ignoring the
+        # cart/wishlist sub-verb so "remove the plushie" strikes the saved one.
+        card_key = f"{app}:{(target or summary).strip().lower()}"
+        is_removal = bool(re.search(
+            r"remov|delet|cancel|undo|unsend|turn[_ ]?off|stop|clear", action, re.I))
+        if is_removal:
+            for a in _recent_actions:  # mark the matching added item as undone
+                if a["card_key"] == card_key:
+                    a["removed"] = True
+
+        _recent_actions.append({
+            "dkey": dkey, "card_key": card_key, "app": app, "action": action,
+            "summary": summary, "created_at": now, "removed": is_removal,
+        })
+
+        # No live third-party integration yet — capture the structured intent so
+        # it shows in the HUD. Wire a real executor per app right here when ready
+        # (e.g. Amazon, Twilio/Messages, Spotify, email) keyed on `app`/`action`.
+        return f"🧩 {summary}  ·  [{app}/{action}] ⟦{card_key}⟧"
+
+    if name == "clarification_needed":
+        q = (args.get("question") or "Which one did you mean?").strip()
+        opts = args.get("options") or []
+        if isinstance(opts, str):
+            opts = [opts]
+        opts = [str(o).strip() for o in opts if str(o).strip()]
+        # Encoded so the server can render it as a question with options.
+        return "❓CLARIFY|" + q + "|" + "||".join(opts)
 
     return f"[unknown tool: {name}]"

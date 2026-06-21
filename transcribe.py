@@ -43,6 +43,7 @@ def _build_url(sample_rate: int) -> str:
         "punctuate": "true",
         "interim_results": "true",  # get live partials as someone speaks
         "endpointing": "300",       # ms of silence before finalizing an utterance
+        "detect_entities": "true",  # pull out nouns (products, people, places) for the entity cache
     }
     query = "&".join(f"{k}={v}" for k, v in params.items())
     return f"{DEEPGRAM_URL}?{query}"
@@ -83,7 +84,7 @@ def _resolve_sample_rate(device) -> int:
         return rate
 
 
-async def stream_microphone(on_final, on_interim=None, device=None, on_level=None):
+async def stream_microphone(on_final, on_interim=None, device=None, on_level=None, on_entities=None):
     """Stream the mic to Deepgram until cancelled (Ctrl+C).
 
     Reconnects automatically with exponential backoff if Deepgram drops the
@@ -109,7 +110,7 @@ async def stream_microphone(on_final, on_interim=None, device=None, on_level=Non
     backoff = 1
     while True:
         try:
-            await _stream_once(on_final, on_interim, device, api_key, sample_rate, on_level)
+            await _stream_once(on_final, on_interim, device, api_key, sample_rate, on_level, on_entities)
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
         except Exception as e:  # connection dropped — back off and reconnect
@@ -118,7 +119,7 @@ async def stream_microphone(on_final, on_interim=None, device=None, on_level=Non
             backoff = min(backoff * 2, 30)
 
 
-async def _stream_once(on_final, on_interim, device, api_key, sample_rate, on_level=None):
+async def _stream_once(on_final, on_interim, device, api_key, sample_rate, on_level=None, on_entities=None):
     """One mic→Deepgram session; returns/raises when the socket closes."""
     loop = asyncio.get_running_loop()
     audio_queue: asyncio.Queue[bytes] = asyncio.Queue()
@@ -176,6 +177,10 @@ async def _stream_once(on_final, on_interim, device, api_key, sample_rate, on_le
                 if not text:
                     continue
                 if data.get("is_final"):
+                    if on_entities:
+                        ents = alt.get("entities") or []
+                        if ents:
+                            on_entities(ents)
                     on_final(text)
                 elif on_interim:
                     on_interim(text)
