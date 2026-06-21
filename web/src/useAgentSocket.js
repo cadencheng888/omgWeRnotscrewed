@@ -7,7 +7,7 @@ let cid = 0
 const initial = {
   connected: false,
   status: 'connecting',     // listening | demo running | thinking | idle | disconnected
-  calMode: 'mock',          // mock | live (calendar badge)
+  calMode: null,            // null (unknown yet) | mock | live (calendar badge)
   location: null,           // detected current location label
   capMode: 'conversation',  // conversation | solo
   face: null,               // present | absent | off | null

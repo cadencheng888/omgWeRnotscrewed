@@ -170,9 +170,11 @@ export default function App() {
         </div>
 
         <div className="flex items-center justify-center gap-2">
-          <Chip color={calMode === 'live' ? '#34d399' : '#fbbf24'}>
-            <span className={calMode === 'live' ? 'text-emerald-300/90' : 'text-amber-300/90'}>{calMode === 'live' ? 'Live' : 'Mock'}</span>
-          </Chip>
+          {calMode != null && (
+            <Chip color={calMode === 'live' ? '#34d399' : '#fbbf24'}>
+              <span className={calMode === 'live' ? 'text-emerald-300/90' : 'text-amber-300/90'}>{calMode === 'live' ? 'Live' : 'Mock'}</span>
+            </Chip>
+          )}
           <Chip color="#34d399">{ttl > 0 ? `auto-deletes ${ttl}s` : 'ephemeral'}</Chip>
           {location && <Chip color="#38bdf8">📍 {location}</Chip>}
           <div className="flex items-center rounded-lg border border-white/10 overflow-hidden text-[13px]">
