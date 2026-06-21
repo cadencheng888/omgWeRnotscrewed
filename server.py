@@ -85,6 +85,7 @@ _DANGLING_TAIL = {
 
 # --- pipeline buffer (ephemeral: held only until it acts or the moment passes) ---
 SILENCE_FLUSH_SECONDS = 1.5     # quiet gap before we send a flush to the agent
+CHAT_FLUSH_SECONDS = 0.8        # snappier gap once we're mid-conversation with Mark
 IDLE_CLEAR_SECONDS = 20         # clear the buffer ~20s after the last speech
 RECORD_SILENCE_SECONDS = 8.0    # record mode: silence gap that signals end of conversation
 MAX_AGE_SECONDS = 20            # hard guarantee: nothing held older than ~20s
@@ -229,19 +230,48 @@ async def _on_startup():
               "but won't execute).")
 
 
+async def _wake_now():
+    """Hey-Siri-style instant wake: bare 'mark' greets right away, no silence wait.
+    _chat_active is already set True by the caller to prevent a double-trigger."""
+    global _transcript, _dirty
+    _chat_history.clear()
+    _transcript = []
+    _dirty = False
+    greeting = "Hey, I'm here — what's up?"
+    _chat_history.append({"role": "assistant", "content": greeting})
+    print(f"💬 WAKE → chat mode opened; greeting: {greeting!r}")
+    await say(greeting)
+
+
 def on_final(text: str):
-    global _last_speech, _dirty
+    global _last_speech, _dirty, _chat_active
     if STOP_KEYWORD and STOP_KEYWORD.lower() in text.lower():
+        print(f"🛑 stop keyword heard in: {text!r}")
         asyncio.create_task(_stop_listening())
         return
     if time.monotonic() < _suppress_capture_until:
+        print(f"🔇 (ignored — Mark is speaking) {text!r}")
         return  # Mark is talking — this is his own voice bleeding into the mic
     if CAPTURE_MODE == "conversation" and not _ray_ban_audio_active and not face_gate.is_present():
         return  # no face in view — not capturing
     now = time.monotonic()
+
+    # DEBUG: every recognized sentence, with the running paragraph it's part of.
+    print(f"📝 [{CAPTURE_MODE}{'/chat' if _chat_active else ''}] sentence: {text!r}")
+
+    # Hey-Siri reaction: a bare "mark" opens the conversation instantly instead
+    # of waiting out the normal silence-flush window. Set the flag synchronously
+    # so a quick second "mark" can't fire a second greeting.
+    if CAPTURE_MODE == "solo" and not _chat_active and _is_chat_trigger(text):
+        _chat_active = True
+        asyncio.create_task(_wake_now())
+        return
+
     _transcript.append({"t": text, "ts": now})
     _last_speech = now
     _dirty = True
+    paragraph = " ".join(e["t"] for e in _transcript)
+    print(f"📄 paragraph so far: {paragraph!r}")
     asyncio.create_task(broadcast({"type": "caption", "final": True, "text": text}))
 
 
@@ -315,8 +345,10 @@ async def flusher():
                 chunk = " ".join(e["t"] for e in _transcript)[-MAX_BUFFER_CHARS:]
                 _transcript.clear()
                 note = await asyncio.to_thread(agent.compress_sentence, chunk)
+                print(f"📝 RECORD chunk: {chunk!r} → note: {note!r}")
                 if note and note.lower() not in ("none", ""):
                     _record_buffer.append(note)
+                    print(f"📄 RECORD paragraph ({len(_record_buffer)} notes): {_record_buffer}")
                     await broadcast({"type": "record_note", "text": note})
             # Stage 2: after a long gap of silence, synthesise all notes → command
             if _record_buffer and not _dirty and _last_speech > 0 and now - _last_speech >= RECORD_SILENCE_SECONDS:
@@ -324,6 +356,7 @@ async def flusher():
                 _record_buffer.clear()
                 await broadcast({"type": "record_cleared"})
                 command = await asyncio.to_thread(agent.synthesize_command, notes)
+                print(f"🧩 RECORD synthesized command from {notes} → {command!r}")
                 if command and command.lower() not in ("none", ""):
                     directive = (
                         "Direct command from the wearer — perform it now, "
@@ -341,7 +374,9 @@ async def flusher():
 
         if not _dirty:
             continue
-        if now - _last_speech < SILENCE_FLUSH_SECONDS:
+        # Snappier turn-taking once we're mid-conversation; calmer otherwise.
+        flush_gap = CHAT_FLUSH_SECONDS if _chat_active else SILENCE_FLUSH_SECONDS
+        if now - _last_speech < flush_gap:
             continue
         _dirty = False
 
@@ -357,8 +392,10 @@ async def flusher():
                 _transcript = []
                 if not text:
                     continue
+                print(f"💬 YOU said: {text!r}")
                 await broadcast({"type": "status", "text": "thinking"})
                 turn = await asyncio.to_thread(agent.converse, text, _chat_history)
+                print(f"💬 MARK reply: {turn['reply']!r} | end={turn['end']} | task={turn.get('task')!r}")
                 _chat_history.append({"role": "user", "content": text})
                 _chat_history.append({"role": "assistant", "content": turn["reply"]})
                 await say(turn["reply"])
@@ -387,33 +424,43 @@ async def flusher():
                 await say(greeting)
                 continue
 
-            # (3) "mark this <command>" — one-shot command.
+            # (3) "mark this <command>" — explicit one-shot command (overrides
+            # ambient: act on exactly what's said after the wake phrase).
             i = conversation.lower().rfind(WAKE_PHRASE)
-            if i == -1:
-                continue  # no wake phrase — not a command, keep waiting
-            command = conversation[i + len(WAKE_PHRASE):].lstrip(" ,.:;—-").strip()
-            if not command:
-                # heard "mark this" but the command hasn't been spoken yet —
-                # DON'T clear; wait so the next utterance combines with the trigger.
+            if i != -1:
+                command = conversation[i + len(WAKE_PHRASE):].lstrip(" ,.:;—-").strip()
+                if not command:
+                    # heard "mark this" but the command hasn't been spoken yet —
+                    # wait so the next utterance combines with the trigger.
+                    continue
+                # If the command looks unfinished (one word, or ends on a transitive
+                # verb / preposition), wait a few extra seconds for the rest.
+                words = command.split()
+                tail = words[-1].lower().strip(",.?!;:") if words else ""
+                unfinished = len(words) < 2 or tail in _DANGLING_TAIL
+                if unfinished and (now - _last_speech) < SOLO_INCOMPLETE_GRACE:
+                    _dirty = True  # re-check next tick; combine with further speech
+                    continue
+                _transcript = []  # consume the whole buffer
+                directive = (
+                    "Direct command from the wearer — perform it now, inferring the "
+                    "action verb and app if implied: " + command
+                )
+                _write_intention(command)
+                await _process_and_broadcast(directive)
                 continue
 
-            # If the command still looks unfinished (one word, or ends on a transitive
-            # verb / preposition), keep waiting a few extra seconds for the rest.
-            words = command.split()
-            tail = words[-1].lower().strip(",.?!;:") if words else ""
-            unfinished = len(words) < 2 or tail in _DANGLING_TAIL
-            if unfinished and (now - _last_speech) < SOLO_INCOMPLETE_GRACE:
-                _dirty = True  # re-check next tick; combine with any further speech
-                continue
-            _transcript = []  # consume the whole buffer
-            directive = (
-                "Direct command from the wearer — perform it now, inferring the "
-                "action verb and app if implied: " + command
-            )
-            _write_intention(command)
-            await _process_and_broadcast(directive)
+            # (4) AMBIENT auto-add — no wake phrase. Listen to the natural
+            # conversation and let the agent add an event the MOMENT a plan has
+            # the minimum details (a date + time). The agent dedups, so the
+            # growing paragraph won't re-add the same event; later lines that add
+            # a location or a person update it instead. The buffer lingers (not
+            # cleared here) so those follow-up details still have context.
+            print(f"🔎 ambient check → {conversation!r}")
+            await _process_and_broadcast(conversation)
             continue
 
+        # Non-solo capture modes (e.g. Conversation) — ambient processing.
         acted = await _process_and_broadcast(conversation)
         if acted:
             _write_intention(conversation)
