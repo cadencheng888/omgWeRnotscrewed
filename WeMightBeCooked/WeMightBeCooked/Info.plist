@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLName</key>
+            <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>wemightbecooked</string>
+            </array>
+        </dict>
+    </array>
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+        <string>fb-viewapp</string>
+    </array>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>Needed to connect to Meta Wearables</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Used to capture audio from your glasses for live transcription</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Used to transcribe audio captured from your glasses</string>
+    <key>MWDAT</key>
+    <dict>
+        <key>AppLinkURLScheme</key>
+        <string>wemightbecooked://</string>
+        <key>MetaAppID</key>
+        <string>0</string>
+    </dict>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>bluetooth-central</string>
+    </array>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Used to discover and connect to Meta Wearables over the local network</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_http._tcp</string>
+        <string>_bonjour._tcp</string>
+    </array>
+</dict>
+</plist>

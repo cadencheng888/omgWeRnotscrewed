@@ -1,0 +1,687 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		C7FB21AA2FE7868E008CD6CD /* MWDATCamera in Frameworks */ = {isa = PBXBuildFile; productRef = C7FB21A92FE7868E008CD6CD /* MWDATCamera */; };
+		C7FB21AC2FE7868E008CD6CD /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = C7FB21AB2FE7868E008CD6CD /* MWDATCore */; };
+		C7FB21AE2FE7868E008CD6CD /* MWDATDisplay in Frameworks */ = {isa = PBXBuildFile; productRef = C7FB21AD2FE7868E008CD6CD /* MWDATDisplay */; };
+		C7FB21CA2FE78DD0008CD6CD /* server.py in Resources */ = {isa = PBXBuildFile; fileRef = C7FB21C92FE78DD0008CD6CD /* server.py */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		C7FB218C2FE78500008CD6CD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C7FB21742FE784FE008CD6CD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C7FB217B2FE784FE008CD6CD;
+			remoteInfo = WeMightBeCooked;
+		};
+		C7FB21962FE78500008CD6CD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C7FB21742FE784FE008CD6CD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C7FB217B2FE784FE008CD6CD;
+			remoteInfo = WeMightBeCooked;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		C7FB217C2FE784FE008CD6CD /* WeMightBeCooked.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WeMightBeCooked.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C7FB218B2FE78500008CD6CD /* WeMightBeCookedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WeMightBeCookedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C7FB21952FE78500008CD6CD /* WeMightBeCookedUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WeMightBeCookedUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C7FB21C92FE78DD0008CD6CD /* server.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = server.py; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		C7FB21B42FE78A7D008CD6CD /* Exceptions for "WeMightBeCooked" folder in "WeMightBeCooked" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = C7FB217B2FE784FE008CD6CD /* WeMightBeCooked */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		C7FB217E2FE784FE008CD6CD /* WeMightBeCooked */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C7FB21B42FE78A7D008CD6CD /* Exceptions for "WeMightBeCooked" folder in "WeMightBeCooked" target */,
+			);
+			path = WeMightBeCooked;
+			sourceTree = "<group>";
+		};
+		C7FB218E2FE78500008CD6CD /* WeMightBeCookedTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = WeMightBeCookedTests;
+			sourceTree = "<group>";
+		};
+		C7FB21982FE78500008CD6CD /* WeMightBeCookedUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = WeMightBeCookedUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C7FB21792FE784FE008CD6CD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C7FB21AE2FE7868E008CD6CD /* MWDATDisplay in Frameworks */,
+				C7FB21AA2FE7868E008CD6CD /* MWDATCamera in Frameworks */,
+				C7FB21AC2FE7868E008CD6CD /* MWDATCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C7FB21882FE78500008CD6CD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C7FB21922FE78500008CD6CD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		C7FB21732FE784FE008CD6CD = {
+			isa = PBXGroup;
+			children = (
+				C7FB21C92FE78DD0008CD6CD /* server.py */,
+				C7FB217E2FE784FE008CD6CD /* WeMightBeCooked */,
+				C7FB218E2FE78500008CD6CD /* WeMightBeCookedTests */,
+				C7FB21982FE78500008CD6CD /* WeMightBeCookedUITests */,
+				C7FB217D2FE784FE008CD6CD /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C7FB217D2FE784FE008CD6CD /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C7FB217C2FE784FE008CD6CD /* WeMightBeCooked.app */,
+				C7FB218B2FE78500008CD6CD /* WeMightBeCookedTests.xctest */,
+				C7FB21952FE78500008CD6CD /* WeMightBeCookedUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		C7FB217B2FE784FE008CD6CD /* WeMightBeCooked */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C7FB219F2FE78500008CD6CD /* Build configuration list for PBXNativeTarget "WeMightBeCooked" */;
+			buildPhases = (
+				C7FB21782FE784FE008CD6CD /* Sources */,
+				C7FB21792FE784FE008CD6CD /* Frameworks */,
+				C7FB217A2FE784FE008CD6CD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				C7FB217E2FE784FE008CD6CD /* WeMightBeCooked */,
+			);
+			name = WeMightBeCooked;
+			packageProductDependencies = (
+				C7FB21A92FE7868E008CD6CD /* MWDATCamera */,
+				C7FB21AB2FE7868E008CD6CD /* MWDATCore */,
+				C7FB21AD2FE7868E008CD6CD /* MWDATDisplay */,
+			);
+			productName = WeMightBeCooked;
+			productReference = C7FB217C2FE784FE008CD6CD /* WeMightBeCooked.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C7FB218A2FE78500008CD6CD /* WeMightBeCookedTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C7FB21A22FE78500008CD6CD /* Build configuration list for PBXNativeTarget "WeMightBeCookedTests" */;
+			buildPhases = (
+				C7FB21872FE78500008CD6CD /* Sources */,
+				C7FB21882FE78500008CD6CD /* Frameworks */,
+				C7FB21892FE78500008CD6CD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C7FB218D2FE78500008CD6CD /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				C7FB218E2FE78500008CD6CD /* WeMightBeCookedTests */,
+			);
+			name = WeMightBeCookedTests;
+			packageProductDependencies = (
+			);
+			productName = WeMightBeCookedTests;
+			productReference = C7FB218B2FE78500008CD6CD /* WeMightBeCookedTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		C7FB21942FE78500008CD6CD /* WeMightBeCookedUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C7FB21A52FE78500008CD6CD /* Build configuration list for PBXNativeTarget "WeMightBeCookedUITests" */;
+			buildPhases = (
+				C7FB21912FE78500008CD6CD /* Sources */,
+				C7FB21922FE78500008CD6CD /* Frameworks */,
+				C7FB21932FE78500008CD6CD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C7FB21972FE78500008CD6CD /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				C7FB21982FE78500008CD6CD /* WeMightBeCookedUITests */,
+			);
+			name = WeMightBeCookedUITests;
+			packageProductDependencies = (
+			);
+			productName = WeMightBeCookedUITests;
+			productReference = C7FB21952FE78500008CD6CD /* WeMightBeCookedUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		C7FB21742FE784FE008CD6CD /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2620;
+				LastUpgradeCheck = 2620;
+				TargetAttributes = {
+					C7FB217B2FE784FE008CD6CD = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					C7FB218A2FE78500008CD6CD = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = C7FB217B2FE784FE008CD6CD;
+					};
+					C7FB21942FE78500008CD6CD = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = C7FB217B2FE784FE008CD6CD;
+					};
+				};
+			};
+			buildConfigurationList = C7FB21772FE784FE008CD6CD /* Build configuration list for PBXProject "WeMightBeCooked" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = C7FB21732FE784FE008CD6CD;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				C7FB21A82FE7868E008CD6CD /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = C7FB217D2FE784FE008CD6CD /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C7FB217B2FE784FE008CD6CD /* WeMightBeCooked */,
+				C7FB218A2FE78500008CD6CD /* WeMightBeCookedTests */,
+				C7FB21942FE78500008CD6CD /* WeMightBeCookedUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C7FB217A2FE784FE008CD6CD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C7FB21CA2FE78DD0008CD6CD /* server.py in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C7FB21892FE78500008CD6CD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C7FB21932FE78500008CD6CD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C7FB21782FE784FE008CD6CD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C7FB21872FE78500008CD6CD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C7FB21912FE78500008CD6CD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		C7FB218D2FE78500008CD6CD /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C7FB217B2FE784FE008CD6CD /* WeMightBeCooked */;
+			targetProxy = C7FB218C2FE78500008CD6CD /* PBXContainerItemProxy */;
+		};
+		C7FB21972FE78500008CD6CD /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C7FB217B2FE784FE008CD6CD /* WeMightBeCooked */;
+			targetProxy = C7FB21962FE78500008CD6CD /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		C7FB219D2FE78500008CD6CD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		C7FB219E2FE78500008CD6CD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		C7FB21A02FE78500008CD6CD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = WeMightBeCooked/WeMightBeCooked.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = MRJ74A626Z;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = WeMightBeCooked/Info.plist;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "This app connects to Meta Ray-Ban glasses.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "This app needs camera access to test wearable visual capture.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app sends captured data to a laptop inference server on the local network.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app needs microphone access to test wearable audio capture.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "This app uses speech recognition to transcribe microphone input.";
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.michelle.WeMightBeCooked;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = auto;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		C7FB21A12FE78500008CD6CD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = WeMightBeCooked/WeMightBeCooked.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = MRJ74A626Z;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = WeMightBeCooked/Info.plist;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "This app connects to Meta Ray-Ban glasses.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "This app needs camera access to test wearable visual capture.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app sends captured data to a laptop inference server on the local network.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app needs microphone access to test wearable audio capture.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "This app uses speech recognition to transcribe microphone input.";
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.michelle.WeMightBeCooked;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = auto;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
+		C7FB21A32FE78500008CD6CD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = None.WeMightBeCookedTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WeMightBeCooked.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/WeMightBeCooked";
+				XROS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		C7FB21A42FE78500008CD6CD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = None.WeMightBeCookedTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WeMightBeCooked.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/WeMightBeCooked";
+				XROS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
+		C7FB21A62FE78500008CD6CD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = None.WeMightBeCookedUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_TARGET_NAME = WeMightBeCooked;
+				XROS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		C7FB21A72FE78500008CD6CD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = None.WeMightBeCookedUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_TARGET_NAME = WeMightBeCooked;
+				XROS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		C7FB21772FE784FE008CD6CD /* Build configuration list for PBXProject "WeMightBeCooked" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C7FB219D2FE78500008CD6CD /* Debug */,
+				C7FB219E2FE78500008CD6CD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C7FB219F2FE78500008CD6CD /* Build configuration list for PBXNativeTarget "WeMightBeCooked" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C7FB21A02FE78500008CD6CD /* Debug */,
+				C7FB21A12FE78500008CD6CD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C7FB21A22FE78500008CD6CD /* Build configuration list for PBXNativeTarget "WeMightBeCookedTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C7FB21A32FE78500008CD6CD /* Debug */,
+				C7FB21A42FE78500008CD6CD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C7FB21A52FE78500008CD6CD /* Build configuration list for PBXNativeTarget "WeMightBeCookedUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C7FB21A62FE78500008CD6CD /* Debug */,
+				C7FB21A72FE78500008CD6CD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C7FB21A82FE7868E008CD6CD /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/facebook/meta-wearables-dat-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.7.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C7FB21A92FE7868E008CD6CD /* MWDATCamera */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C7FB21A82FE7868E008CD6CD /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATCamera;
+		};
+		C7FB21AB2FE7868E008CD6CD /* MWDATCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C7FB21A82FE7868E008CD6CD /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATCore;
+		};
+		C7FB21AD2FE7868E008CD6CD /* MWDATDisplay */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C7FB21A82FE7868E008CD6CD /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATDisplay;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = C7FB21742FE784FE008CD6CD /* Project object */;
+}
