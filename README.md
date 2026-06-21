@@ -5,18 +5,52 @@
 </p>
 
 ## About Our Project & Significance
-remark—stylized as “remark.”—is a multi-agent operating system that marks down information based on remarks made in conversation. For example, remark detects plans to grab dinner in a conversation between two friends and automatically adds the event to your calendar. remark can also keep track of grocery lists for you, take notes, perform live translation, and so much more. remark selects and utilizes the optimal AI agent to carry out your everyday needs, making your life so much more convenient by helping you anywhere and everywhere. remark works in the background, almost unnoticed, but there is nothing unremarkable about the benefits it brings. remark facilitates convenience without the risk of forgetting.
+remark — stylized as "remark." — is a multi-agent operating system that marks down information based on remarks made in conversation. remark detects plans to grab dinner between two friends and automatically adds the event to your calendar. It keeps track of grocery lists, takes notes, sends texts, searches the web, and so much more — all without you ever touching a screen. remark selects and utilizes the optimal AI agent to carry out your everyday needs, making your life more convenient by helping you anywhere and everywhere. It works in the background, almost unnoticed, but there is nothing unremarkable about the benefits it brings. remark facilitates convenience without the risk of forgetting.
+
+But remark's significance goes beyond convenience. Today, the AI agent ecosystem is vast and rapidly growing — there are specialized agents for shopping, scheduling, communication, research, navigation, and nearly every domain of everyday life. The problem is that accessing them requires knowing they exist, finding the right one, and navigating interfaces that were built for technically fluent users. The average person never touches an AI agent. That gap is what remark closes.
+
+By living in a pair of glasses and listening to natural speech, remark becomes the universal entry point to the entire agent ecosystem — no dashboards, no prompts, no learning curve. A grandmother making plans over the phone benefits from the same AI infrastructure as a software engineer. A child saying "I want to get pizza tonight" gets the same outcome as someone who knows how to write a system prompt. The interface is just talking, something every person already knows how to do.
 
 ## Future Expansions & Applications
-We integrated remark to work with Meta Ray Bans. In the future, we hope to assimilate remark into other technology as well so that our AI assistant can work in the background to make lives so much more convenient. You don’t have to do anything—our program will mark it down for you. Here are some expansions/applications of our project:
-
-remark makes planning more convenient. Not only does it detect if you’ve discussed and made plans in conversations but it also accounts for travel times and overlapping event times and sends you a notification when you might be late or cannot make it to an event. Furthermore, if you don’t agree to a plan or cancel an activity, remark does that for you too.
-
-remark bridges the language gap and facilitates communication between two people who speak different languages. remark hears another person speaking in a language incomprehensible to the user; in these cases, remark will transcribe what the speaker is saying, translating—noting intent too, not merely what the person literally is saying—and reading it back to the user. remark mutes the other person while it’s translating, so the user only hears the translated speech of the person they’re conversing with.
-remark also has many other capabilities, such as (but not limited to) assisting with note-taking, keeping track of your grocery or shopping list, or getting you live baking advice (e.g. mix more because it doesn’t look “light and fluffy” yet).
+remark already runs hands-free on Meta Ray-Ban glasses (and works from a laptop mic with no app needed), listening for intent in ordinary conversation and turning it into real actions. Today, that means automatically creating, rescheduling, and canceling calendar events when you discuss, commit to, or back out of plans — plus routing shopping, messages, reminders, music, directions, and web lookups to an autonomous agent that actually carries them out. You don't have to do anything; remark marks it down for you. Here's where we're taking it next:
+  - Smarter planning. Beyond detecting that you've made plans, remark will factor in travel time and overlapping events, and proactively notify you when you're at risk of being late or double-booked.
+  - Live translation. remark is English-only today. We plan to have it bridge the language gap in real time: when it hears someone speaking a language you don't understand, it will transcribe and translate what they say — capturing intent, not just the literal words — and read it back to you, muting the other speaker while it translates so you only hear the translated speech.
+  - Everyday assistance. remark can already take notes and run shopping and errand tasks through its web agent. We want to grow this into richer, longer-lived helpers — a running grocery or shopping list, and, once on-glasses vision is wired in, live situational coaching such as real-time baking advice ("mix more
+  — it doesn't look light and fluffy yet").
+- Somehow find a way to reduce latency when communicating between agents.
+- Add video and implement our object-detection only pipeline.
 
 ## What Makes Us Unique
-Especially during this era of new technology and innovations, privacy concerns remain a large anxiety. Although there is existing technology that does components of what remark’s features do, we not only combine everything into one easy-to-use multi-agent operating system, but we also circumvents the privacy concerns that that existing technology comes with. By operating as a multi-agent platform, we direct each type of usage to the optimal agent to handle it and in that way make our technology extendable and adaptable to unique situations, even niche ones not encountered often and/or before. Furthermore, remark generally does not store private information. We only store temporary data (for example we have no extended live stream or video footage; instead, we use object detection for visual information), and if we do store information over a more extended period of time (e.g. however long a user may want remark to track their grocery list for them), then we would ask for consent so the system would be permission-based. In that way, remark is built around the idea of reducing privacy concerns and anxieties about security prevalent in this digital age.
+In this era of constant new hardware and innovation, privacy remains a major source of anxiety — and it's where remark is deliberately different. Plenty of existing technology does pieces of what remark's features do, but we combine them into one easy-to-use, multi-agent system: a tiered router that hands each request to the agent best suited to handle it — a specialized Fetch.ai agent, the calendar, or an autonomous web agent — which keeps the platform extendable and adaptable to unusual, even one-off situations it hasn't seen before.
+Just as importantly, remark is built to minimize what it keeps. By default, nothing is persisted: the live transcript stays in memory and auto-clears seconds after the moment passes, and the only lasting record is the calendar event you actually wanted. We don't record or stream video — visual context is handled entirely on-device, where a face-presence check (running locally, with no frames ever leaving your device) gates passive listening. And if a feature ever needs to remember something longer — say, holding onto a grocery list for as long as you want it tracked — we ask first, so anything persistent is permission-based. remark is designed from the ground up to shrink the privacy surface, not expand it.
+
+## Our Process
+We started our project from the frustration that AI agents are everywhere and incredibly capable, but using one means knowing it exists, finding it, and learning to navigate a dashboard that may not be intuitive for those unfamiliar with them. Our project proposes a solution by asking: what's the most natural, always-on way to talk? Smart glasses. The process of voice in, real-world action out seeks to make AI agents accessible to everyone.
+
+Step 1 — Hearing (audio → text)
+
+We built the ears first. transcribe.py takes the Meta Ray-Ban glasses microphone and streams raw PCM16 audio to Deepgram's nova-3 model over a WebSocket, getting back live interim and final transcripts. We turned on Deepgram's entity detection early because we knew we'd later need to resolve pronouns like "buy them." We made it reconnect automatically with exponential backoff so a long listening session survives network blips.
+
+Step 2 — Understanding (text → intent)
+
+Next, the brain: agent.py. We gave Claude Haiku 4.5 a tool-calling schema and a carefully tuned prompt so it could read messy, real conversational speech and decide what's actually actionable — distinguishing a real plan from chit-chat, an active command from passive admiration ("play this" vs. "I love this song"). Our first concrete action was calendar events, executed through the Google Calendar API with a mock mode so the demo works even before you connect Google.
+
+Step 3 — Seeing it (the HUD) + privacy
+
+We built a React + Tailwind "glasses HUD" (server.py + web/) that streams live captions and action cards over WebSocket, with the calendar embedded so events appear instantly. Then we added the features that make ambient listening acceptable: an on-device face-presence gate using the laptop webcam (only listens when someone's actually talking to you — camera frames never leave the machine) and an ephemeral transcript buffer that auto-wipes itself 20 seconds after the moment passes.
+
+Step 4 — Turning intent into action
+
+The hardest part: making "add this to my cart" or "text Sarah I'm running late" actually happen, not just appear as a card on screen.
+
+When Claude identifies a non-calendar action, it hands a natural-language intent string to our TypeScript agentic router (src/router.ts) running on a background thread — the optimistic card appears on the HUD immediately while the real work happens in parallel.
+
+The router tries three tiers in order. First, it queries the Fetch.ai Agentverse marketplace to find a specialized agent for the task — searching for candidates by capability, then using Claude to judge the best match. Second, if the intent is calendar-shaped, it hits the Google Calendar API directly. Third, and most powerfully, it falls through to Browserbase + Stagehand: a cloud-hosted browser driven by Claude Sonnet 4.6 that can navigate and interact with essentially any website on the internet. The wearer's current location (resolved via IP geolocation) is baked into every intent string so "near me" and directions work correctly.
+
+The router streams its reasoning back to the HUD as live "thinking" lines — so you can watch the agent decide, step by step, before the final result card lands.
+
+## Privacy + Ethical Use of AI
+The primary privacy concern related to our project is that the Meta Ray Ban microphone listens to whatever is going on, 24/7. However, we do not retain raw audio, video, images, or full transcripts. The system converts each interaction into a short, topic-level memory summary, stores only the minimum needed context, and deletes the source content after processing. Raw audio, video, images, and transcripts never leave the user’s device. They are processed locally, compressed into short topic-level summaries, and then deleted. Only the minimum necessary summary or task-specific instruction is shared with an external agent, and only when the user approves or triggers an action.
 
 # Glasses Agent — audio pipeline
 
