@@ -1,5 +1,6 @@
 # Secrets / config
 .env
+.env.example
 
 # Google OAuth
 credentials.json
