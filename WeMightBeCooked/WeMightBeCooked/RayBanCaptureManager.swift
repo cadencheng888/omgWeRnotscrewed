@@ -5,7 +5,6 @@ import MWDATCore
 import MWDATCamera
 import Combine
 import AVFoundation
-import Speech
 
 @MainActor
 final class RayBanCaptureManager: NSObject, ObservableObject {
@@ -15,9 +14,6 @@ final class RayBanCaptureManager: NSObject, ObservableObject {
     @Published var latestTranscript = ""
     @Published var isTranscribing = false
 
-    private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
-    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
 
     private var webSocket: URLSessionWebSocketTask?
@@ -335,24 +331,11 @@ final class RayBanCaptureManager: NSObject, ObservableObject {
         sendImage(jpegData.base64EncodedString())
     }
 
-    // MARK: - Audio Transcription (Bluetooth mic, not MWDAT)
+    // MARK: - Raw Audio Streaming to Deepgram (via server)
 
     func startTranscription() {
         guard !isTranscribing else { return }
 
-        SFSpeechRecognizer.requestAuthorization { [weak self] authStatus in
-            guard let self else { return }
-            Task { @MainActor in
-                guard authStatus == .authorized else {
-                    self.sendStatus("Speech recognition not authorized: \(authStatus.rawValue)")
-                    return
-                }
-                self.requestMicPermissionAndStart()
-            }
-        }
-    }
-
-    private func requestMicPermissionAndStart() {
         AVAudioApplication.requestRecordPermission { [weak self] granted in
             guard let self else { return }
             Task { @MainActor in
@@ -360,23 +343,19 @@ final class RayBanCaptureManager: NSObject, ObservableObject {
                     self.sendStatus("Microphone permission denied")
                     return
                 }
-                self.beginAudioEngine()
+                self.beginRawAudioCapture()
             }
         }
     }
 
-    private func beginAudioEngine() {
-        guard let speechRecognizer, speechRecognizer.isAvailable else {
-            sendStatus("Speech recognizer unavailable")
-            return
-        }
-
+    private func beginRawAudioCapture() {
         let audioSession = AVAudioSession.sharedInstance()
         do {
+            // .allowBluetooth routes the Ray-Ban Bluetooth mic through HFP
             try audioSession.setCategory(
                 .playAndRecord,
-                mode: .default,
-                options: [.defaultToSpeaker]
+                mode: .measurement,
+                options: [.allowBluetooth, .defaultToSpeaker]
             )
             try audioSession.setActive(true)
         } catch {
@@ -384,23 +363,46 @@ final class RayBanCaptureManager: NSObject, ObservableObject {
             return
         }
 
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        if speechRecognizer.supportsOnDeviceRecognition {
-            request.requiresOnDeviceRecognition = true
-        }
-        self.recognitionRequest = request
-
         let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        let nativeFormat = inputNode.outputFormat(forBus: 0)
+        let sampleRate = Int(nativeFormat.sampleRate)
+
+        // Tell the server our audio config so it can configure Deepgram correctly
+        sendJSON([
+            "type": "audio_config",
+            "sample_rate": sampleRate,
+            "channels": 1,
+            "encoding": "linear16"
+        ] as [String: Any])
 
         inputNode.removeTap(onBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-            request.append(buffer)
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: nativeFormat) { [weak self] buffer, _ in
+            guard let self else { return }
+            let frameCount = Int(buffer.frameLength)
+            guard frameCount > 0 else { return }
+
+            // Convert to mono int16 PCM — the format Deepgram linear16 expects
+            var pcm16 = [Int16](repeating: 0, count: frameCount)
+            if let floatData = buffer.floatChannelData {
+                let ch = floatData[0]   // channel 0; handles both mono and stereo input
+                for i in 0..<frameCount {
+                    let s = max(-1.0, min(1.0, ch[i]))
+                    pcm16[i] = Int16(s * 32767.0)
+                }
+            } else if let int16Data = buffer.int16ChannelData {
+                let ch = int16Data[0]
+                for i in 0..<frameCount { pcm16[i] = ch[i] }
+            } else {
+                return
+            }
+
+            let audioData = pcm16.withUnsafeBytes { Data($0) }
+            Task { @MainActor in
+                self.sendAudioBytes(audioData)
+            }
         }
 
         audioEngine.prepare()
-
         do {
             try audioEngine.start()
         } catch {
@@ -409,19 +411,15 @@ final class RayBanCaptureManager: NSObject, ObservableObject {
         }
 
         isTranscribing = true
-        sendStatus("Transcription started — input route: \(audioSession.currentRoute.inputs.map { $0.portName })")
+        let inputs = audioSession.currentRoute.inputs.map { $0.portName }
+        sendStatus("Raw audio streaming to Deepgram — \(sampleRate) Hz via \(inputs)")
+    }
 
-        recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
-            guard let self else { return }
-            Task { @MainActor in
-                if let result {
-                    let text = result.bestTranscription.formattedString
-                    self.latestTranscript = text
-                    self.sendJSON(["type": "transcript", "text": text])
-                }
-                if error != nil || (result?.isFinal ?? false) {
-                    self.stopTranscription()
-                }
+    private func sendAudioBytes(_ data: Data) {
+        guard let webSocket else { return }
+        webSocket.send(.data(data)) { error in
+            if let error {
+                print("WebSocket audio send error:", error.localizedDescription)
             }
         }
     }
@@ -431,11 +429,9 @@ final class RayBanCaptureManager: NSObject, ObservableObject {
 
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
-        recognitionRequest?.endAudio()
-        recognitionTask?.cancel()
-        recognitionRequest = nil
-        recognitionTask = nil
         isTranscribing = false
+
+        sendJSON(["type": "audio_stop"])
 
         do {
             try AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
@@ -443,7 +439,7 @@ final class RayBanCaptureManager: NSObject, ObservableObject {
             sendStatus("Audio session deactivate error: \(error.localizedDescription)")
         }
 
-        sendStatus("Transcription stopped")
+        sendStatus("Audio streaming stopped")
     }
 
     // MARK: - Debug

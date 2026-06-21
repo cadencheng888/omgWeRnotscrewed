@@ -194,6 +194,95 @@ async def _stream_once(on_final, on_interim, device, api_key, sample_rate, on_le
         await asyncio.gather(sender(), receiver(), keepalive())
 
 
+async def stream_from_queue(
+    on_final, on_interim=None, audio_queue=None, sample_rate=16000,
+    on_level=None, on_entities=None
+):
+    """Stream audio from an asyncio.Queue to Deepgram.
+
+    The queue should contain raw PCM16 mono byte chunks.
+    Put None into the queue to stop the stream.
+    Reconnects with backoff on transient Deepgram errors.
+    """
+    api_key = os.environ.get("DEEPGRAM_API_KEY")
+    if not api_key:
+        raise RuntimeError("Set DEEPGRAM_API_KEY in your .env file.")
+    if audio_queue is None:
+        raise ValueError("audio_queue is required")
+
+    backoff = 1
+    while True:
+        try:
+            await _stream_from_queue_once(
+                on_final, on_interim, audio_queue, api_key, sample_rate, on_level, on_entities
+            )
+            return  # queue sent None — clean stop
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e:
+            print(f"[audio-in] connection lost ({e!r}); reconnecting in {backoff}s…")
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 30)
+
+
+async def _stream_from_queue_once(
+    on_final, on_interim, audio_queue, api_key, sample_rate, on_level=None, on_entities=None
+):
+    """One queue→Deepgram session; same receiver/keepalive logic as _stream_once."""
+    try:
+        ws_ctx = websockets.connect(
+            _build_url(sample_rate), additional_headers={"Authorization": f"Token {api_key}"}
+        )
+    except TypeError:
+        ws_ctx = websockets.connect(
+            _build_url(sample_rate), extra_headers={"Authorization": f"Token {api_key}"}
+        )
+
+    async with ws_ctx as ws:
+        print(f"🎙️  Deepgram connected (audio-in, {sample_rate} Hz)")
+
+        async def sender():
+            while True:
+                chunk = await audio_queue.get()
+                if chunk is None:
+                    return   # stop signal
+                await ws.send(chunk)
+                if on_level is not None:
+                    try:
+                        import array as _array
+                        s = _array.array("h")
+                        s.frombytes(chunk)
+                        peak = abs(max(s, key=abs)) if s else 0
+                        on_level(peak / 32767)
+                    except Exception:
+                        pass
+
+        async def receiver():
+            async for message in ws:
+                data = json.loads(message)
+                if data.get("type") != "Results":
+                    continue
+                alt = data["channel"]["alternatives"][0]
+                text = alt.get("transcript", "").strip()
+                if not text:
+                    continue
+                if data.get("is_final"):
+                    if on_entities:
+                        ents = alt.get("entities") or []
+                        if ents:
+                            on_entities(ents)
+                    on_final(text)
+                elif on_interim:
+                    on_interim(text)
+
+        async def keepalive():
+            while True:
+                await asyncio.sleep(8)
+                await ws.send(json.dumps({"type": "KeepAlive"}))
+
+        await asyncio.gather(sender(), receiver(), keepalive())
+
+
 def list_devices():
     """Print available audio input devices and their indices."""
     print(sd.query_devices())
