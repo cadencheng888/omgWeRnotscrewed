@@ -27,7 +27,7 @@ import geo
 import router_client
 from demo import CONVO
 from face_gate import FaceGate
-from transcribe import stream_microphone, stream_from_queue
+from transcribe import stream_microphone
 
 # --- Calendar mode: real if credentials exist, otherwise a mock so the HUD
 #     demos immediately (before Google is connected). ---
@@ -65,8 +65,9 @@ _main_loop: asyncio.AbstractEventLoop | None = None
 # Capture modes (distinct from MODE, which is the calendar mock/live badge):
 #   conversation — passive, only captures when a face is in view (FaceGate)
 #   solo         — only acts on commands prefixed with the wake phrase
-CAPTURE_MODE = "conversation"
+CAPTURE_MODE = "solo"
 WAKE_PHRASE = "mark this"
+STOP_KEYWORD = "mydong"  # say this to stop listening and return to idle
 face_gate = FaceGate()
 
 # Solo-mode: a command ending on one of these (a transitive verb or a dangling
@@ -92,7 +93,33 @@ _transcript: list[dict] = []   # each: {"t": text, "ts": monotonic}
 _last_speech = 0.0
 _dirty = False
 _mic_task: asyncio.Task | None = None
-_ray_ban_audio_active = False   # True while /ws/audio-in is streaming; bypasses face gate
+
+
+async def _stop_listening():
+    """Cancel the mic task and return the UI to idle."""
+    global _mic_task, _transcript, _dirty
+    _transcript.clear()
+    _dirty = False
+    face_gate.stop()
+    await broadcast({"type": "forgotten"})
+    await broadcast({"type": "status", "text": "idle"})
+    if _mic_task and not _mic_task.done():
+        _mic_task.cancel()
+
+
+INTENTION_PIPE = "/tmp/intention.pipe"
+
+def _write_intention(command: str):
+    """Write the intention sentence to a FIFO so an external terminal can pick it up."""
+    try:
+        if not os.path.exists(INTENTION_PIPE):
+            os.mkfifo(INTENTION_PIPE)
+        # Open non-blocking so we don't stall if nobody is reading
+        fd = os.open(INTENTION_PIPE, os.O_WRONLY | os.O_NONBLOCK)
+        with os.fdopen(fd, "w") as f:
+            f.write(command + "\n")
+    except (OSError, BrokenPipeError):
+        pass  # no reader attached — silently drop
 
 
 async def broadcast(msg: dict):
@@ -139,6 +166,11 @@ async def _on_startup():
 
 def on_final(text: str):
     global _last_speech, _dirty
+    if STOP_KEYWORD and STOP_KEYWORD.lower() in text.lower():
+        asyncio.create_task(_stop_listening())
+        return
+    if CAPTURE_MODE == "conversation" and not face_gate.is_present():
+        return  # no face in view — not capturing
     now = time.monotonic()
     _transcript.append({"t": text, "ts": now})
     _last_speech = now
@@ -147,6 +179,8 @@ def on_final(text: str):
 
 
 def on_interim(text: str):
+    if CAPTURE_MODE == "conversation" and not face_gate.is_present():
+        return
     asyncio.create_task(broadcast({"type": "caption", "final": False, "text": text}))
 
 
@@ -248,6 +282,7 @@ async def flusher():
                 "Direct command from the wearer — perform it now, inferring the "
                 "action verb and app if implied: " + command
             )
+            _write_intention(command)
             await _process_and_broadcast(directive)
             continue
 
@@ -363,71 +398,6 @@ async def ws_endpoint(ws: WebSocket):
                 await broadcast({"type": "status", "text": "idle"})
     except WebSocketDisconnect:
         clients.discard(ws)
-
-
-@app.websocket("/ws/audio-in")
-async def audio_in_endpoint(ws: WebSocket):
-    """Accepts raw PCM16 mono audio from the Ray-Ban relay (WeMightBeCooked/server.py).
-
-    Protocol:
-      1. iPhone → relay sends JSON {"type": "audio_config", "sample_rate": N}
-      2. relay forwards binary PCM16 chunks here
-      3. relay sends JSON {"type": "audio_stop"} or just disconnects when done
-    The chunks feed directly into stream_from_queue(), which runs the same
-    Deepgram → on_final → flusher → agent pipeline as the local mic.
-    """
-    global _ray_ban_audio_active
-    await ws.accept()
-    _ray_ban_audio_active = True
-    print("Ray-Ban audio relay connected")
-    await broadcast({"type": "status", "text": "Ray-Ban audio connected"})
-
-    audio_queue: asyncio.Queue = asyncio.Queue()
-    stream_task: asyncio.Task | None = None
-
-    async def _start_stream(sample_rate: int):
-        nonlocal stream_task, audio_queue
-        if stream_task and not stream_task.done():
-            await audio_queue.put(None)   # stop previous sender
-            stream_task.cancel()
-        audio_queue = asyncio.Queue()
-        stream_task = asyncio.create_task(
-            stream_from_queue(
-                on_final, on_interim,
-                audio_queue=audio_queue,
-                sample_rate=sample_rate,
-                on_level=on_level,
-                on_entities=on_entities,
-            )
-        )
-        # Ensure the flusher is running (in case mic was never started)
-        global _mic_task
-        if _mic_task is None or _mic_task.done():
-            _mic_task = asyncio.create_task(flusher())
-
-    try:
-        while True:
-            message = await ws.receive()
-            if message["type"] == "websocket.disconnect":
-                break
-            if "text" in message:
-                import json as _json
-                data = _json.loads(message["text"])
-                if data.get("type") == "audio_config":
-                    await _start_stream(int(data.get("sample_rate", 16000)))
-                elif data.get("type") == "audio_stop":
-                    await audio_queue.put(None)
-            elif "bytes" in message:
-                await audio_queue.put(message["bytes"])
-    except WebSocketDisconnect:
-        pass
-    finally:
-        _ray_ban_audio_active = False
-        await audio_queue.put(None)
-        if stream_task:
-            stream_task.cancel()
-        print("Ray-Ban audio relay disconnected")
-        await broadcast({"type": "status", "text": "Ray-Ban audio disconnected"})
 
 
 app.mount("/assets", StaticFiles(directory="web/dist/assets"), name="assets")
