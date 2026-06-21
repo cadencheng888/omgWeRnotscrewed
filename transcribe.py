@@ -13,6 +13,7 @@ Run it standalone to just see transcripts:
     python transcribe.py
 """
 
+import array
 import asyncio
 import json
 import os
@@ -31,12 +32,12 @@ SAMPLE_RATE = 16000
 CHANNELS = 1
 
 
-def _build_url() -> str:
+def _build_url(sample_rate: int) -> str:
     params = {
         "model": "nova-3",          # Deepgram's latest general model
         "language": "en-US",
         "encoding": "linear16",     # raw 16-bit PCM, matches dtype="int16" below
-        "sample_rate": str(SAMPLE_RATE),
+        "sample_rate": str(sample_rate),
         "channels": str(CHANNELS),
         "smart_format": "true",     # nice formatting of times, numbers, etc.
         "punctuate": "true",
@@ -47,8 +48,46 @@ def _build_url() -> str:
     return f"{DEEPGRAM_URL}?{query}"
 
 
-async def stream_microphone(on_final, on_interim=None, device=None):
+def _preferred_input_device():
+    """Default to the built-in Mac mic (more reliable for demos than AirPods).
+
+    Matches by name so it survives index changes / AirPods connecting. Returns
+    None (= system default) if no built-in mic is found.
+    """
+    try:
+        for i, d in enumerate(sd.query_devices()):
+            name = d["name"].lower()
+            if d["max_input_channels"] > 0 and ("macbook" in name or "built-in" in name):
+                return i
+    except Exception:
+        pass
+    return None
+
+
+def _resolve_sample_rate(device) -> int:
+    """Use 16 kHz if the device supports it; otherwise fall back to its default.
+
+    Some mics (e.g. AirPods) don't expose 16 kHz mono, which would make
+    RawInputStream raise at open. We probe first and, if needed, use the
+    device's native rate (Deepgram is told the real rate via _build_url).
+    """
+    try:
+        sd.check_input_settings(
+            device=device, samplerate=SAMPLE_RATE, channels=CHANNELS, dtype="int16"
+        )
+        return SAMPLE_RATE
+    except Exception:
+        info = sd.query_devices(device, "input")
+        rate = int(info["default_samplerate"])
+        print(f"[audio] {SAMPLE_RATE} Hz unsupported on this device; using {rate} Hz")
+        return rate
+
+
+async def stream_microphone(on_final, on_interim=None, device=None, on_level=None):
     """Stream the mic to Deepgram until cancelled (Ctrl+C).
+
+    Reconnects automatically with exponential backoff if Deepgram drops the
+    socket (network blip, idle timeout) so a long listening session survives.
 
     on_final(text):   called with each finalized utterance.
     on_interim(text): optional, called with live partial transcripts.
@@ -58,6 +97,29 @@ async def stream_microphone(on_final, on_interim=None, device=None):
     if not api_key:
         raise RuntimeError("Set DEEPGRAM_API_KEY in your .env file.")
 
+    if device is None:
+        device = _preferred_input_device()  # built-in Mac mic by default
+    try:
+        print(f"[audio] using input device: {sd.query_devices(device, 'input')['name']}")
+    except Exception:
+        pass
+
+    sample_rate = _resolve_sample_rate(device)
+
+    backoff = 1
+    while True:
+        try:
+            await _stream_once(on_final, on_interim, device, api_key, sample_rate, on_level)
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e:  # connection dropped — back off and reconnect
+            print(f"[audio] connection lost ({e!r}); reconnecting in {backoff}s…")
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 30)
+
+
+async def _stream_once(on_final, on_interim, device, api_key, sample_rate, on_level=None):
+    """One mic→Deepgram session; returns/raises when the socket closes."""
     loop = asyncio.get_running_loop()
     audio_queue: asyncio.Queue[bytes] = asyncio.Queue()
 
@@ -66,16 +128,25 @@ async def stream_microphone(on_final, on_interim=None, device=None):
     def audio_callback(indata, frames, time_info, status):
         if status:
             print(f"[audio] {status}")
-        loop.call_soon_threadsafe(audio_queue.put_nowait, bytes(indata))
+        b = bytes(indata)
+        loop.call_soon_threadsafe(audio_queue.put_nowait, b)
+        if on_level is not None:  # emit a 0..1 mic level for the UI meter
+            try:
+                s = array.array("h")
+                s.frombytes(b)
+                peak = abs(max(s, key=abs)) if s else 0
+                loop.call_soon_threadsafe(on_level, peak / 32767)
+            except Exception:
+                pass
 
     # websockets >=13 uses additional_headers; older versions use extra_headers.
     try:
         ws_ctx = websockets.connect(
-            _build_url(), additional_headers={"Authorization": f"Token {api_key}"}
+            _build_url(sample_rate), additional_headers={"Authorization": f"Token {api_key}"}
         )
     except TypeError:
         ws_ctx = websockets.connect(
-            _build_url(), extra_headers={"Authorization": f"Token {api_key}"}
+            _build_url(sample_rate), extra_headers={"Authorization": f"Token {api_key}"}
         )
 
     async with ws_ctx as ws:
@@ -83,7 +154,7 @@ async def stream_microphone(on_final, on_interim=None, device=None):
 
         async def sender():
             stream = sd.RawInputStream(
-                samplerate=SAMPLE_RATE,
+                samplerate=sample_rate,
                 channels=CHANNELS,
                 dtype="int16",
                 blocksize=4000,          # ~250 ms blocks

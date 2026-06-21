@@ -12,3 +12,7 @@ google-auth-httplib2>=0.2.0
 
 # Config
 python-dotenv>=1.0.0
+
+# Web HUD (demo dashboard)
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0

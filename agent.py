@@ -27,7 +27,9 @@ client = Anthropic()  # reads ANTHROPIC_API_KEY from env
 # Tracks recently created events for dedup and cancellation.
 # Each entry: {"event_id": str, "title": str, "start_iso": str, "created_at": float}
 _recent_events: list[dict] = []
-DEDUP_WINDOW_SECONDS = 300  # ignore reconfirmations within 5 minutes
+# How long we remember a created event — used both to suppress duplicate
+# re-confirmations AND to let later "cancel that" / "reschedule" target it.
+DEDUP_WINDOW_SECONDS = 3600  # 1 hour
 
 # Titles that are too generic unless the transcript/tool input really supports them.
 GENERIC_EVENT_TITLES = {"meeting", "event", "plan", "calendar event", "appointment"}
@@ -124,9 +126,13 @@ TOOLS = [
         "name": "create_calendar_event",
         "description": (
             "Create a Google Calendar event when people agree on a real-world plan "
-            "with a specific date/time. Use a SPECIFIC activity title. Do not use "
-            "'Meeting' unless the plan is actually a meeting/sync/discussion. For "
-            "food plans use Lunch, Dinner, Breakfast, Coffee, Boba, or Drinks. For "
+            "with a specific date/time, OR when the wearer directly asks to "
+            "schedule/add/create/set up an event at a given time (e.g. 'schedule an "
+            "event for tomorrow at 7pm', 'add a meeting at 3'). Use a SPECIFIC "
+            "activity title when one is named; if a direct request names no "
+            "activity, use the title 'Event' (event_type 'other'). Do not use "
+            "'Meeting' unless it's actually a meeting/sync/discussion. For food "
+            "plans use Lunch, Dinner, Breakfast, Coffee, Boba, or Drinks. For "
             "'call me at 6', use Call."
         ),
         "input_schema": {
@@ -188,36 +194,57 @@ TOOLS = [
         },
     },
     {
-        "name": "cancel_last_event",
+        "name": "cancel_event",
         "description": (
-            "Cancel / delete the most recently created calendar event. Use this "
-            "when ANY speaker retracts, rejects, or becomes unavailable for the "
-            "plan that was just made. Examples: 'cancel that', 'never mind', "
-            "'forget it', 'actually I am busy', 'I cannot make it', 'rain check', "
-            "'sorry, that will not work for me', 'maybe another time'."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-            "required": [],
-        },
-    },
-    {
-        "name": "create_task",
-        "description": (
-            "Create a Google Task / to-do. Use for action items without a fixed "
-            "calendar event time, e.g. 'remind me to buy milk', 'I need to email Sam'."
+            "Cancel / delete a previously created calendar event. Use this when "
+            "ANY speaker retracts, rejects, or becomes unavailable for a plan. "
+            "Examples: 'cancel that', 'never mind', 'forget it', 'actually I'm "
+            "busy', 'I can't make it', 'I can't go to dinner anymore', 'rain "
+            "check', 'that won't work for me', 'maybe another time'. If they say "
+            "which plan ('cancel the dinner'), pass it as event_description; "
+            "otherwise the most recent event is cancelled."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "title": {"type": "string"},
-                "due_iso": {
+                "event_description": {
                     "type": "string",
-                    "description": "Optional due date/time in ISO 8601.",
+                    "description": (
+                        "Which event to cancel, e.g. 'dinner' or 'lunch with Alex'. "
+                        "Optional — omit to cancel the most recent event."
+                    ),
                 },
             },
-            "required": ["title"],
+            "required": [],
+        },
+    },
+    {
+        "name": "reschedule_event",
+        "description": (
+            "Change the time of a previously created calendar event when speakers "
+            "move an existing plan to a new time (rather than cancelling it). "
+            "Examples: 'let's push dinner to 8 instead', 'can we move lunch to 1?', "
+            "'actually let's do it tomorrow at noon', 'same plan, just an hour "
+            "later'. If they name which plan, pass it as event_description; "
+            "otherwise the most recent event is moved."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "new_start_iso": {
+                    "type": "string",
+                    "description": "New start time in ISO 8601 with offset, e.g. 2026-06-20T20:00:00-07:00.",
+                },
+                "event_description": {
+                    "type": "string",
+                    "description": "Which event to move, e.g. 'dinner'. Optional — omit for the most recent.",
+                },
+                "new_duration_minutes": {
+                    "type": "integer",
+                    "description": "New length in minutes. Optional — omit to keep the current duration.",
+                },
+            },
+            "required": ["new_start_iso"],
         },
     },
 ]
@@ -238,7 +265,10 @@ You are an assistant embedded in smart glasses. You passively receive transcribe
 
 Resolve relative dates and times like "6pm", "tonight", "tomorrow", "next Friday", and "in 20 minutes" against the current time: {_now_context()} (timezone {TZ_NAME}).
 
-You cannot ask the wearer follow-up questions. They are not in a chat and cannot reply. If a plan or to-do is clear enough to act on, call the appropriate tool immediately using the best information available. Missing minor details, such as exact location or attendee name, should not prevent action.
+You cannot ask the wearer follow-up questions. They are not in a chat and cannot reply. If a plan is clear enough to act on, call the appropriate tool immediately using the best information available. Missing minor details, such as exact location or attendee name, should not prevent action.
+
+DIRECT REQUESTS TO YOU:
+The wearer often speaks directly to you, the assistant, with commands like "schedule an event for tomorrow at 7pm", "add a meeting at 3", "put dinner on my calendar Friday", "move it to 8", or "cancel that". Treat any such direct request as an explicit instruction and ACT ON IT IMMEDIATELY. A direct request that includes a time is always a commitment — create the event even if no specific activity is named, using title "Event" and event_type "other" when unspecified. Do not dismiss a direct scheduling command as chit-chat.
 
 Before creating an event, classify the plan:
 1. Is the wearer personally involved?
@@ -268,7 +298,7 @@ When extracting an event, infer as many fields as possible:
 
 ACTION RULES:
 1. Create an event only when the wearer appears to have a real plan with a clear enough time/date.
-2. Create a reminder or to-do only when someone clearly asks the wearer to do something, or the wearer says they need to do something.
+2. Focus only on calendar events for now (create, reschedule, cancel). Do not create to-dos or reminders.
 3. If the transcript contains a clear time/date and clear commitment, act even if some minor details are missing.
 4. If the transcript is garbled, use only the clear parts and ignore noise.
 
@@ -284,7 +314,7 @@ Only call a tool if new important information changes the existing plan.
 CANCELLATIONS, REJECTIONS, AND AVAILABILITY CONFLICTS:
 Cancel or do not create an event when ANY speaker clearly indicates the plan is no longer happening, they cannot attend, or the proposed time does not work. This includes direct cancellations, soft rejections, and availability conflicts.
 
-If an event was already created recently and the transcript now contains one of these meanings, call cancel_last_event:
+If an event was already created recently and the transcript now contains one of these meanings, call cancel_event (pass event_description if they name which plan, e.g. "I can't go to the dinner anymore"):
 - "cancel that"
 - "never mind"
 - "actually forget it"
@@ -300,22 +330,29 @@ If an event was already created recently and the transcript now contains one of 
 
 If no event was created yet and the transcript is rejecting a proposed plan, call no tool.
 
+RESCHEDULING:
+If a plan that was already created is moved to a new time (not cancelled), call reschedule_event with new_start_iso instead of creating a second event. Examples:
+- "let's push dinner to 8 instead"
+- "can we move lunch to 1?"
+- "actually let's do it an hour later"
+- "same plan, just tomorrow instead"
+Pass event_description (e.g. "dinner") if they say which plan; otherwise the most recent event is moved. Only create a brand-new event if the plan is genuinely a different one.
+
 PROPOSALS VS COMMITMENTS:
-Do not create an event for vague or hypothetical discussion.
-No tool:
-- "we should get lunch sometime"
-- "maybe we can meet next week"
-- "I might go to the gym later"
-- "let's figure it out"
+Be EAGER to capture plans. If a specific activity AND a concrete time/date are mentioned, CREATE the event immediately — you do NOT need to hear explicit agreement. A proposal with a real time ("wanna get Shake Shack tomorrow at 7?", "dinner at 7 tonight?") is enough to act on; the wearer can always cancel later.
+
+Only skip (call no tool) when:
+- the plan is vague or hypothetical with NO concrete time ("we should hang out sometime", "maybe next week", "let's figure it out", "I might go to the gym later"), OR
+- this exact plan is explicitly cancelled or retracted (use cancel_event for that).
+
+Do NOT let unrelated chatter, side questions, or a stray "no" / "not really" / "nah" elsewhere in the transcript stop you from capturing a clearly stated plan. Only an explicit cancellation of the plan itself counts as a cancellation — random negative words in noisy multi-person speech do not.
 
 Create an event:
 - "let's get lunch tomorrow at noon"
-- "dinner at 7 tonight?" followed by acceptance or clear agreement
-- "yeah, that works"
+- "wanna get Shake Shack tomorrow at 7?"
+- "dinner at 7 tonight?"
 - "see you tomorrow at 3"
 - "call me at 6"
-
-If one person proposes a plan and the other accepts or agrees, create the event. If one person proposes and the other declines, do not create the event.
 
 EXAMPLES:
 Transcript: "Let's get lunch tomorrow at noon. Yeah, sounds good."
@@ -331,22 +368,47 @@ Transcript: "Lunch tomorrow at noon? Actually I'm busy, sorry."
 Tool: none
 
 Transcript after recently creating lunch: "Actually I'm busy, sorry, rain check?"
-Tool: cancel_last_event()
+Tool: cancel_event()
+
+Transcript after recently creating dinner: "Hey can we push dinner to 8 instead?"
+Tool: reschedule_event(new_start_iso=<resolved 8pm today>)
+
+Transcript after creating both lunch and dinner: "I can't make the lunch anymore."
+Tool: cancel_event(event_description="lunch")
 
 ONLY when there is genuinely no actionable plan, event, reminder, cancellation, or to-do, call no tool and reply "none".
 """
+
+
+def _recent_events_context() -> str:
+    """A short note listing events created this session, so Claude knows what
+    exists and can reschedule_event / cancel_event them across flushes."""
+    now = time.monotonic()
+    _recent_events[:] = [e for e in _recent_events if now - e["created_at"] < DEDUP_WINDOW_SECONDS]
+    if not _recent_events:
+        return ""
+    lines = [f"- {e['title']} at {e['start_iso']}" for e in _recent_events]
+    return (
+        "Events you already created this session (reschedule_event or "
+        "cancel_event these instead of making duplicates):\n" + "\n".join(lines)
+    )
 
 
 def process_transcript(conversation: str) -> list[str]:
     """Send conversation to Claude; execute any tool calls. Returns log lines."""
     system = build_system_prompt()
 
+    user_content = f"Conversation so far:\n{conversation}"
+    context = _recent_events_context()
+    if context:
+        user_content = f"{context}\n\n{user_content}"
+
     response = client.messages.create(
         model="claude-haiku-4-5",  # fastest + cheapest; great for this task
         max_tokens=1024,
         system=system,
         tools=TOOLS,
-        messages=[{"role": "user", "content": f"Conversation so far:\n{conversation}"}],
+        messages=[{"role": "user", "content": user_content}],
     )
 
     logs = []
@@ -355,6 +417,21 @@ def process_transcript(conversation: str) -> list[str]:
             result = execute_tool(block.name, block.input)
             logs.append(result)
     return logs
+
+
+def _find_recent_event(hint: str | None = None) -> dict | None:
+    """Most recent tracked event matching `hint` (title substring), else the latest."""
+    now = time.monotonic()
+    _recent_events[:] = [e for e in _recent_events if now - e["created_at"] < DEDUP_WINDOW_SECONDS]
+    if not _recent_events:
+        return None
+    if hint:
+        h = hint.strip().lower()
+        for e in reversed(_recent_events):
+            t = e["title"].lower()
+            if h in t or t in h:
+                return e
+    return _recent_events[-1]
 
 
 def execute_tool(name: str, args: dict) -> str:
@@ -395,13 +472,12 @@ def execute_tool(name: str, args: dict) -> str:
             location=args.get("location"),
             notes=notes,
         )
-        # Extract event id from the result URL to support cancellation.
+        # Pull the real event id (appended by calendar_tool as [id:...]) so
+        # cancellation deletes the right event; keep it out of the printed line.
         event_id = None
-        if "eid=" in result:
-            try:
-                event_id = result.split("eid=")[1].split("&")[0]
-            except IndexError:
-                pass
+        if "[id:" in result:
+            event_id = result.split("[id:")[1].split("]")[0]
+            result = result.split(" [id:")[0]
         _recent_events.append({
             "key": key,
             "title": args["title"],
@@ -411,18 +487,32 @@ def execute_tool(name: str, args: dict) -> str:
         })
         return result
 
-    if name == "cancel_last_event":
-        now = time.monotonic()
-        _recent_events[:] = [e for e in _recent_events if now - e["created_at"] < DEDUP_WINDOW_SECONDS]
-        if not _recent_events:
+    if name == "cancel_event":
+        event = _find_recent_event(args.get("event_description"))
+        if not event:
             return "⚠️  No recent event to cancel"
-        last = _recent_events.pop()
-        if not last.get("event_id"):
-            return f"⚠️  Can't cancel '{last['title']}' — event ID not available"
-        return calendar_tool.delete_event(last["event_id"])
+        if not event.get("event_id"):
+            return f"⚠️  Can't cancel '{event['title']}' — event ID not available"
+        _recent_events.remove(event)
+        return calendar_tool.delete_event(event["event_id"])
 
-    if name == "create_task":
-        return calendar_tool.create_task(
-            title=args["title"], due_iso=args.get("due_iso")
+    if name == "reschedule_event":
+        new_start = args.get("new_start_iso")
+        if not new_start:
+            return "⚠️  No new time given for reschedule"
+        event = _find_recent_event(args.get("event_description"))
+        if not event:
+            return "⚠️  No recent event to reschedule"
+        if not event.get("event_id"):
+            return f"⚠️  Can't reschedule '{event['title']}' — event ID not available"
+        result = calendar_tool.update_event(
+            event["event_id"],
+            start_iso=new_start,
+            duration_minutes=args.get("new_duration_minutes"),
         )
+        # Keep our tracking + dedup key in sync with the new time.
+        event["start_iso"] = new_start
+        event["key"] = _event_key(event["title"], new_start)
+        return result
+
     return f"[unknown tool: {name}]"

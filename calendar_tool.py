@@ -19,7 +19,6 @@ from googleapiclient.discovery import build
 
 SCOPES = [
     "https://www.googleapis.com/auth/calendar.events",
-    "https://www.googleapis.com/auth/tasks",
 ]
 TZ_NAME = os.environ.get("LOCAL_TIMEZONE", "America/Los_Angeles")
 
@@ -56,13 +55,57 @@ def create_event(title, start_iso, duration_minutes=60, location=None, notes=Non
         body["description"] = notes
 
     event = service.events().insert(calendarId="primary", body=body).execute()
-    return f"📅 Calendar event created: '{title}' at {start_iso} -> {event.get('htmlLink')}"
+    # Append the real event id (in [id:...]) so the agent can cancel by the
+    # actual id later — NOT the htmlLink's `eid`, which is base64(id+calendarId)
+    # and is rejected by events().delete().
+    return (
+        f"📅 Calendar event created: '{title}' at {start_iso} -> "
+        f"{event.get('htmlLink')} [id:{event['id']}]"
+    )
 
 
 def delete_event(event_id: str) -> str:
     service = build("calendar", "v3", credentials=_credentials())
     service.events().delete(calendarId="primary", eventId=event_id).execute()
     return f"🗑️  Calendar event deleted (id {event_id})"
+
+
+def update_event(event_id, start_iso=None, duration_minutes=None,
+                 location=None, notes=None) -> str:
+    """Move/modify an existing event. If start_iso is given and
+    duration_minutes is not, the original duration is preserved."""
+    service = build("calendar", "v3", credentials=_credentials())
+    event = service.events().get(calendarId="primary", eventId=event_id).execute()
+
+    if start_iso:
+        start = datetime.datetime.fromisoformat(start_iso)
+        if duration_minutes is None:
+            # Preserve the original duration when only the start moves.
+            try:
+                old_start = datetime.datetime.fromisoformat(event["start"]["dateTime"])
+                old_end = datetime.datetime.fromisoformat(event["end"]["dateTime"])
+                duration_minutes = int((old_end - old_start).total_seconds() // 60) or 60
+            except (KeyError, ValueError):
+                duration_minutes = 60
+        end = start + datetime.timedelta(minutes=duration_minutes)
+        event["start"] = {"dateTime": start.isoformat(), "timeZone": TZ_NAME}
+        event["end"] = {"dateTime": end.isoformat(), "timeZone": TZ_NAME}
+    elif duration_minutes is not None:
+        start = datetime.datetime.fromisoformat(event["start"]["dateTime"])
+        end = start + datetime.timedelta(minutes=duration_minutes)
+        event["end"] = {"dateTime": end.isoformat(), "timeZone": TZ_NAME}
+
+    if location is not None:
+        event["location"] = location
+    if notes is not None:
+        event["description"] = notes
+
+    updated = service.events().update(
+        calendarId="primary", eventId=event_id, body=event
+    ).execute()
+    title = updated.get("summary", "event")
+    new_when = updated.get("start", {}).get("dateTime", start_iso)
+    return f"🔁 Rescheduled '{title}' to {new_when}"
 
 
 def create_task(title, due_iso=None) -> str:

@@ -14,29 +14,34 @@ from agent import process_transcript
 from transcribe import stream_microphone
 
 SILENCE_FLUSH_SECONDS = 1.5
-MAX_BUFFER_CHARS = 2000
+MAX_BUFFER_CHARS = 600
 
-_buffer: list[str] = []
+_transcript: list[str] = []
 _last_speech = 0.0
+_dirty = False
 
 
 def on_final(text: str):
-    global _last_speech
+    global _last_speech, _dirty
     print(f"\n🗣️  {text}")
-    _buffer.append(text)
+    _transcript.append(text)
     _last_speech = time.monotonic()
+    _dirty = True
 
 
 async def flusher():
-    global _buffer
+    global _dirty, _transcript
     while True:
         await asyncio.sleep(0.25)
-        if not _buffer:
+        if not _dirty:
             continue
         if time.monotonic() - _last_speech < SILENCE_FLUSH_SECONDS:
             continue
-        conversation = " ".join(_buffer)[-MAX_BUFFER_CHARS:]
-        _buffer = []
+        _dirty = False
+        # Rolling context so a request spread across pauses is seen as a whole.
+        conversation = " ".join(_transcript)[-MAX_BUFFER_CHARS:]
+        if len(_transcript) > 10:
+            _transcript = _transcript[-10:]
         print(f"🤖 processing: {conversation!r}")
         try:
             results = await asyncio.to_thread(process_transcript, conversation)
